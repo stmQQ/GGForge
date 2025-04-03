@@ -1,6 +1,5 @@
 from app.models.user_models import User, FriendRequest, Friendship, SupportTicket
-from app.models.tournament_models import Tournament, TournamentRegistration
-from app.extensions import db
+from app.models.tournament_models import Tournament
 from werkzeug.security import generate_password_hash
 from datetime import datetime, timedelta
 
@@ -97,7 +96,6 @@ def reset_password(email, new_password):
 
 
 #endregion
-
 
 #region Administrating and support
 
