@@ -1,7 +1,7 @@
 #from app.models.user_models import User, FriendRequest, Friendship, SupportTicket
 from app.models.tournament_models import Tournament
 from app.extensions import db
-from datetime import datetime, timedelta
+from datetime import datetime
 
 def get_upcoming_tournaments(user_id):
     """Получение списка предстоящих турниров, в которых зарегистрирован пользователь"""
@@ -39,7 +39,7 @@ def unregister_from_tournament(user_id, tournament_id):
     
     return tournament
 
-
+#TODO: Исправить сущность
 def create_tournament(name, game, start_date, max_players, creator_id):
     """Создает новый турнир"""
     tournament = Tournament(
