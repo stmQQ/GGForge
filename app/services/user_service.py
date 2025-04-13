@@ -1,6 +1,8 @@
-from app.models.user_models import User, FriendRequest, Friendship, SupportTicket
+from app.models.user_models import User, FriendRequest, Friendship, SupportTicket, Connection, GameAccount
 from werkzeug.security import generate_password_hash
 from datetime import datetime, timedelta
+from app.extensions import db
+from sqlalchemy.dialects.postgresql import UUID
 
 
 #region User operations
@@ -255,5 +257,60 @@ def get_friends(user_id):
     return friends
 
 #endregion
+
+#region Connections to external API
+
+def get_or_create_connection(service_name: str, profile_url: str, user_id: UUID):
+    connection = Connection.query.filter_by(
+        service_name=service_name,
+        external_user_url=profile_url
+    ).first()
+
+    if connection is None:
+        connection = Connection(
+            service_name=service_name,
+            external_user_url=profile_url,
+            user_id=user_id
+        )
+        db.session.add(connection)
+        db.session.flush()  # Чтобы получить connection.id
+
+    return connection
+
+
+def create_game_account_if_absent(user_id: UUID, connection_id: UUID):
+    account = GameAccount.query.filter_by(
+        user_id=user_id,
+        connection_id=connection_id
+    ).first()
+
+    if account is None:
+        account = GameAccount(
+            user_id=user_id,
+            connection_id=connection_id
+        )
+        db.session.add(account)
+        db.session.commit()
+
+    return account
+
+
+def unlink_game_account(user_id, connection_id):
+    account = GameAccount.query.filter_by(
+        user_id=user_id,
+        connection_id=connection_id
+    ).first()
+
+    if account:
+        db.session.delete(account)
+
+        # Удалим connection, если он больше нигде не используется
+        count = GameAccount.query.filter_by(connection_id=connection_id).count()
+        if count == 0:
+            conn = Connection.query.get(connection_id)
+            if conn:
+                db.session.delete(conn)
+
+        db.session.commit()
 
 

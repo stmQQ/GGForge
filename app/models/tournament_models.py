@@ -2,7 +2,7 @@ from app.extensions import db
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from flask_login import UserMixin
 import uuid
-from datetime import datetime
+from datetime import datetime, UTC
 
 
 class Tournament(db.Model):
@@ -12,6 +12,11 @@ class Tournament(db.Model):
     title = db.Column(db.String(64), unique=True, nullable=False)
     creator_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False)
     game_id = db.Column(UUID(as_uuid=True), db.ForeignKey('games.id'), nullable=False)
+    start_time = db.Column(db.DateTime, nullable=False, default=datetime.now(UTC))
+    prize_pool = db.Column(db.String(8), default='0')
+    max_players = db.Column(db.Integer, nullable=False)
+    tournament_type = db.Column(db.String(16), nullable=False) # solo / team / battle_royal
+    status = db.Column(db.String(16), nullable=False, default='scheduled') # scheduled, active, completed
     group_stage = db.relationship('GroupStage', backref='tournament', uselist=False)
     playoff_stage = db.relationship('PlayOffStage', backref='tournament', uselist=False)
     participants = db.relationship('User', secondary='tournament_participants', backref='tournaments_participated')
@@ -33,7 +38,9 @@ class Group(db.Model):
 
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     letter = db.Column(db.String(4), nullable=False)
+    max_participants = db.Column(db.Integer, nullable=False)
     groupstage_id = db.Column(UUID(as_uuid=True), db.ForeignKey('group_stages.id'), nullable=False)
+    participants = db.relationship('User', secondary='group_users', bacref='groups')
     teams = db.relationship('Team', secondary='group_teams', backref='groups')
     matches = db.relationship('Match', backref='group', lazy=True)
 
@@ -61,7 +68,8 @@ class Match(db.Model):
 
     user1_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=True)
     user2_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=True)
-
+    #TODO: Добавить победителя
+    winner_id = db.Column(UUID(as_uuid=True))
     scheduled_time = db.Column(db.DateTime)
     result = db.Column(db.String(128))
     # team

@@ -9,6 +9,7 @@ class Game(db.Model):
 
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title = db.Column(db.String(64), nullable=False, unique=True)
+    image_path = db.Column(db.String(256), nullable=False, unique=True)
     tournaments = db.relationship('Tournament', backref='game', lazy=True)
     achievements = db.relationship('Achievement', backref='game', lazy=True)
 
