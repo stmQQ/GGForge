@@ -19,6 +19,7 @@ class Tournament(db.Model):
     status = db.Column(db.String(16), nullable=False, default='scheduled') # scheduled, active, completed
     group_stage = db.relationship('GroupStage', backref='tournament', uselist=False)
     playoff_stage = db.relationship('PlayOffStage', backref='tournament', uselist=False)
+    result_table = db.relationship('ResultTable', backref='tournament', uselist=False, cascade='all, delete-orphan')
     participants = db.relationship('User', secondary='tournament_participants', backref='tournaments_participated')
     teams = db.relationship('Team', secondary='tournament_teams', backref='tournaments_participated')
     matches = db.relationship('Match', backref='tournament', lazy=True)
@@ -82,4 +83,38 @@ class Match(db.Model):
     participants = db.relationship('User', secondary='match_participants', backref='matches')
 
     
+class ResultTable(db.Model):
+    __tablename__ = 'result_tables'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    tournament_id = db.Column(
+        UUID(as_uuid=True),
+        db.ForeignKey('tournaments.id'),
+        nullable=False,
+        unique=True  # гарантирует, что 1:1
+    )
+
+    # Список призовых мест
+    results = db.relationship('ResultRow', backref='result_table', cascade="all, delete-orphan")
+
+
+class ResultRow(db.Model):
+    __tablename__ = 'result_rows'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    result_table_id = db.Column(UUID(as_uuid=True), db.ForeignKey('result_tables.id'), nullable=False)
+
+    place = db.Column(db.Integer, nullable=False)
+    prize = db.Column(db.String(16), default='0')
+
+    team_id = db.Column(UUID(as_uuid=True), db.ForeignKey('teams.id'), nullable=True)
+    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=True)
+
+    team = db.relationship('Team')
+    user = db.relationship('User')
+
+    @property
+    def participant(self):
+        return self.team if self.team_id else self.user
 

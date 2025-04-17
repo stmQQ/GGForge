@@ -18,6 +18,7 @@ class User(db.Model, UserMixin):
     name = db.Column(db.String(64), nullable=False, unique=True)
     email = db.Column(db.String(256), nullable=False, unique=True)
     password = db.Column(db.String(256), nullable=False)
+    avatar = db.Column(db.String(128))
     registration_date = db.Column(db.Date, nullable=False, default=datetime.now(UTC).date)
     last_online = db.Column(db.DateTime, nullable=False)
     admin_role = db.Column(db.Boolean, nullable=False)
@@ -43,6 +44,7 @@ class GameAccount(db.Model):
 
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False)
+    game_id = db.Column(UUID(as_uuid=True), db.ForeignKey('games.id'), nullable=False)
     connection_id = db.Column(UUID(as_uuid=True), db.ForeignKey('connections.id'), nullable=False)
 
 
@@ -66,10 +68,22 @@ class SupportToken(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now(UTC))
 
 
-class FriendRequest(db.Model):
-    __tablename__ = 'friend_requests'
+class UserRequest(db.Model):
+    __tablename__ = 'user_requests'
 
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     from_user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False)
     to_user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False)
-    status = db.Column(db.String(32), nullable=False)
+
+    type = db.Column(db.String(32), nullable=False)  # 'friend', 'team'
+    status = db.Column(db.String(32), nullable=False, default='pending')  # pending, accepted, declined
+
+    # Только для приглашения в команду
+    team_id = db.Column(UUID(as_uuid=True), db.ForeignKey('teams.id'), nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.now(UTC))
+    updated_at = db.Column(db.DateTime, default=datetime.now(UTC), onupdate=datetime.now(UTC))
+
+    from_user = db.relationship('User', foreign_keys=[from_user_id])
+    to_user = db.relationship('User', foreign_keys=[to_user_id])
+    team = db.relationship('Team', foreign_keys=[team_id])

@@ -140,6 +140,7 @@ def end_tournament(tournament_id, winner_id):
 
     tournament.status = "completed"
     tournament.winner_id = winner_id
+    create_resulttable(tournament_id)
     db.session.commit()
     return tournament
 
@@ -457,4 +458,39 @@ def create_match(tournament, match_type, team1=None, team2=None, user1=None, use
     return match
 
 
+def create_resulttable(tournament_id):
+    """Создает таблицу результатов после завершения турнира"""
+    tournament: Tournament = Tournament.query.get(tournament_id)
+    if not tournament:
+        return None
+    table = ResultTable(tournament_id=tournament_id)
+    db.session.add(table)
+    db.session.flush()
 
+    if tournament.tournament_type == 'team':
+        entities = tournament.teams
+    else:
+        entities = tournament.participants
+
+    data = tournament.playoff_stage.structure
+    for e in entities:
+        row = create_resultrow(table.id, )
+
+
+def find_participant_in_structure(structure, p):
+    
+
+def create_resultrow(result_table_id, place, prize='-', team_id=None, user_id=None):
+    result_row = ResultRow(
+        result_table_id=result_table_id, 
+        place=place, 
+        prize=prize, 
+        team_id=team_id, 
+        user_id=user_id
+        )
+    db.session.add(result_row)
+    db.session.flush()
+
+    return result_row
+
+    
