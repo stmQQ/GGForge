@@ -162,10 +162,10 @@ def make_groupstage(tournament_id, participants_per_group, num_groups=None):
     db.session.add(group_stage)
     db.session.flush()  # Получаем ID до коммита
 
-    if tournament.tournament_type == 'solo':
-        entities = tournament.participants
-    else:
+    if tournament.tournament_type == 'team':
         entities = tournament.teams
+    else:
+        entities = tournament.participants
 
     total = len(entities)
     if total == 0:
@@ -402,45 +402,86 @@ def report_match_result(match_id, winner_id):
         raise ValueError("Матч не найден")
 
     is_team = match.match_type != 'solo'
-    winner = match.team1 if is_team and str(match.team1.id) == str(winner_id) else \
-             match.team2 if is_team else \
-             match.user1 if str(match.user1.id) == str(winner_id) else match.user2
+
+    winner = (
+        match.team1 if is_team and str(match.team1.id) == str(winner_id) else
+        match.team2 if is_team and str(match.team2.id) == str(winner_id) else
+        match.user1 if not is_team and str(match.user1.id) == str(winner_id) else
+        match.user2 if not is_team else None
+    )
 
     if not winner:
         raise ValueError("Неверный победитель")
 
+    # Определяем проигравшего
+    loser = (
+        match.team2 if is_team and winner == match.team1 else
+        match.team1 if is_team else
+        match.user2 if winner == match.user1 else
+        match.user1
+    )
+
     match.result = winner.name
+    match.winner_id = winner.id
     db.session.commit()
 
-    # Найдём турнир и плей-офф
-    playoff = PlayOffStage.query.filter_by(tournament_id=match.tournament_id).first()
-    if not playoff:
-        return
+    # === Обновление статистики ===
+    if match.group_id:
+        group = Group.query.get(match.group_id)
+        stats = group.stats or {}
 
-    structure = playoff.structure
-    match_id_str = str(match.id)
+        win_id = str(winner.id)
+        lose_id = str(loser.id)
 
-    def propagate_winner(rounds):
-        for r in rounds:
-            for m in r['matches']:
-                if m.get('id') == match_id_str:
-                    m['winner'] = winner.name
-                    return True
-        return False
+        for pid in [win_id, lose_id]:
+            if pid not in stats:
+                stats[pid] = {
+                    'points': 0,
+                    'wins': 0,
+                    'losses': 0,
+                    'draws': 0,
+                    'matches_played': 0,
+                    'round_difference': 0
+                }
 
-    updated = False
-    if 'winners_bracket' in structure:
-        updated = propagate_winner(structure['winners_bracket']) or updated
-    if 'losers_bracket' in structure:
-        updated = propagate_winner(structure['losers_bracket']) or updated
-    if 'rounds' in structure:
-        updated = propagate_winner(structure['rounds']) or updated
-    if 'final' in structure and structure['final'].get('match', {}).get('id') == match_id_str:
-        structure['final']['match']['winner'] = winner.name
-        updated = True
+        stats[win_id]['points'] += 3
+        stats[win_id]['wins'] += 1
+        stats[win_id]['matches_played'] += 1
 
-    if updated:
+        stats[lose_id]['losses'] += 1
+        stats[lose_id]['matches_played'] += 1
+
+        group.stats = stats
         db.session.commit()
+
+    # === Обновление плей-офф структуры ===
+    playoff = PlayOffStage.query.filter_by(tournament_id=match.tournament_id).first()
+    if playoff:
+        structure = playoff.structure
+        match_id_str = str(match.id)
+
+        def propagate_winner(rounds):
+            for r in rounds:
+                for m in r['matches']:
+                    if m.get('id') == match_id_str:
+                        m['winner'] = winner.name
+                        return True
+            return False
+
+        updated = False
+        if 'winners_bracket' in structure:
+            updated = propagate_winner(structure['winners_bracket']) or updated
+        if 'losers_bracket' in structure:
+            updated = propagate_winner(structure['losers_bracket']) or updated
+        if 'rounds' in structure:
+            updated = propagate_winner(structure['rounds']) or updated
+        if 'final' in structure and structure['final'].get('match', {}).get('id') == match_id_str:
+            structure['final']['match']['winner'] = winner.name
+            updated = True
+
+        if updated:
+            db.session.commit()
+
 
 
 def create_match(tournament, match_type, team1=None, team2=None, user1=None, user2=None):
@@ -477,7 +518,8 @@ def create_resulttable(tournament_id):
         row = create_resultrow(table.id, )
 
 
-def find_participant_in_structure(structure, p):
+def find_participant_in_structure(structure, p_id):
+
     
 
 def create_resultrow(result_table_id, place, prize='-', team_id=None, user_id=None):
