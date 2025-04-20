@@ -31,41 +31,69 @@ class User(db.Model, UserMixin):
     )
 
 
-    game_accounts = db.relationship('GameAccount', backref='user', lazy=True)
-    connections = db.relationship('Connection', backref='user', lazy=True)
-    created_tournaments = db.relationship('Tournament', backref='creator', lazy=True)
-    achievements = db.relationship('Achievement', secondary='user_achievements', backref='users')
-    participated_tournaments = db.relationship('Tournament', secondary='tournament_participants', backref='participants')
-    support_tokens = db.relationship('SupportToken', backref='user', lazy=True)
+    game_accounts = db.relationship('GameAccount', back_populates='user', lazy=True)
+    connections = db.relationship('Connection', back_populates='user', lazy=True)
+    created_tournaments = db.relationship('Tournament', back_populates='creator', lazy=True)
+    achievements = db.relationship('Achievement', secondary='user_achievements', back_populates='users')
+    participated_tournaments = db.relationship('Tournament', secondary='tournament_participants', back_populates='participants')
+    groups = db.relationship('Group', secondary='group_users', back_populates='participants')
+    rows = db.relationship('GroupRow', back_populates='user')
+    support_tokens = db.relationship('SupportToken', back_populates='user', lazy=True)
+    sent_requests = db.relationship('UserRequest', 
+                                    back_populates='from_user', 
+                                    foreign_keys='UserRequest.from_user_id',
+                                     lazy=True)
+    received_requests = db.relationship('UserRequest', 
+                                        back_populates='to_user', 
+                                        foreign_keys='UserRequest.from_user_id',
+                                        lazy=True)
 
 
 class GameAccount(db.Model):
     __tablename__ = 'game_accounts'
 
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
     user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False)
+    user = db.relationship('User', back_populates='game_accounts', uselist=False)
+
     game_id = db.Column(UUID(as_uuid=True), db.ForeignKey('games.id'), nullable=False)
+    game = db.relationship('Game', back_populates='game_account', uselist=False)
+
     connection_id = db.Column(UUID(as_uuid=True), db.ForeignKey('connections.id'), nullable=False)
+    connection = db.relationship('Connection', back_populates='game_account', uselist=False)
+
 
 
 class Connection(db.Model):
     __tablename__ = 'connections'
 
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
     service_name = db.Column(db.String(64), nullable=False)
     external_user_url = db.Column(db.String(256), nullable=True, unique=True)
+
     user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False)
+    user = db.relationship('User', back_populates='connections', uselist=False)
+
+    game_account_id = db.Column(UUID(as_uuid=True), db.ForeignKey('game_accounts.id'), nullable=False)
+    game_account = db.relationship('GameAccount', back_populates='connection', uselist=False)
+
+ 
 
 
 class SupportToken(db.Model):
     __tablename__ = 'support_tokens'
     
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False)
+
     theme = db.Column(db.String(64), nullable=False)
     text = db.Column(db.String(512))
     status = db.Column(db.String(32), nullable=False, default='Not answered')
     created_at = db.Column(db.DateTime, default=datetime.now(UTC))
+
+    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False)
+    user = db.relationship('User', back_populates='support_tokens', uselist=False)
 
 
 class UserRequest(db.Model):
@@ -84,6 +112,6 @@ class UserRequest(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now(UTC))
     updated_at = db.Column(db.DateTime, default=datetime.now(UTC), onupdate=datetime.now(UTC))
 
-    from_user = db.relationship('User', foreign_keys=[from_user_id])
-    to_user = db.relationship('User', foreign_keys=[to_user_id])
-    team = db.relationship('Team', foreign_keys=[team_id])
+    from_user = db.relationship('User', back_populates='sent_requests', foreign_keys=[from_user_id], uselist=False)
+    to_user = db.relationship('User', back_populates='received_requests', foreign_keys=[to_user_id], uselist=False)
+    team = db.relationship('Team', back_populates='requests', foreign_keys=[team_id], uselist=False)

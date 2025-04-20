@@ -140,7 +140,7 @@ def end_tournament(tournament_id, winner_id):
 
     tournament.status = "completed"
     tournament.winner_id = winner_id
-    create_resulttable(tournament_id)
+    create_Prizetable(tournament_id)
     db.session.commit()
     return tournament
 
@@ -421,7 +421,6 @@ def report_match_result(match_id, winner_id):
         match.user1
     )
 
-    match.result = winner.name
     match.winner_id = winner.id
     db.session.commit()
 
@@ -499,32 +498,28 @@ def create_match(tournament, match_type, team1=None, team2=None, user1=None, use
     return match
 
 
-def create_resulttable(tournament_id):
+def create_Prizetable(tournament_id):
     """Создает таблицу результатов после завершения турнира"""
     tournament: Tournament = Tournament.query.get(tournament_id)
     if not tournament:
         return None
-    table = ResultTable(tournament_id=tournament_id)
+    table = PrizeTable(tournament_id=tournament_id)
     db.session.add(table)
     db.session.flush()
 
-    if tournament.tournament_type == 'team':
+    if tournament.type == 'team':
         entities = tournament.teams
     else:
         entities = tournament.participants
 
     data = tournament.playoff_stage.structure
     for e in entities:
-        row = create_resultrow(table.id, )
+        row = create_PrizeTableRow(table.id, )
 
 
-def find_participant_in_structure(structure, p_id):
-
-    
-
-def create_resultrow(result_table_id, place, prize='-', team_id=None, user_id=None):
-    result_row = ResultRow(
-        result_table_id=result_table_id, 
+def create_PrizeTableRow(prize_table_id, place, prize='-', team_id=None, user_id=None):
+    result_row: PrizeTableRow = PrizeTableRow(
+        prize_table_id=prize_table_id, 
         place=place, 
         prize=prize, 
         team_id=team_id, 
