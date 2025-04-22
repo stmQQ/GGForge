@@ -1,4 +1,5 @@
-from app.models.user_models import User, FriendRequest, Friendship, SupportTicket, Connection, GameAccount
+from app.models.game_models import Game
+from app.models.user_models import User, FriendRequest, Friendship, SupportTicket, Connection, GameAccount, UserRequest
 from werkzeug.security import generate_password_hash
 from datetime import datetime, timedelta
 from app.extensions import db
@@ -7,17 +8,14 @@ from sqlalchemy.dialects.postgresql import UUID
 
 #region User operations
 
-def create_user(username, email, password, steam_id=None, battlenet_id=None, battlenet_region=None, avatar="default", role="player"):
+def create_user(name, email, password, avatar="default", role=False):
     """Создает нового пользователя"""
-    user = User(
-        username=username,
+    user: User = User(
+        name=name,
         email=email,
         password_hash=generate_password_hash(password),
-        steam_id=steam_id,
-        battlenet_id=battlenet_id,
-        battlenet_region=battlenet_region,
-        role=role,
         avatar=avatar,
+        admin_role=role,
         is_banned=False,
         ban_time=None
     )
@@ -26,24 +24,18 @@ def create_user(username, email, password, steam_id=None, battlenet_id=None, bat
     return user
 
 
-def update_user(user_id, username=None, email=None, password=None, steam_id=None, battlenet_id=None, battlenet_region=None, avatar=None):
+def update_user(user_id, name, email, password, avatar="default"):
     """Обновляет данные пользователя"""
     user = User.query.get(user_id)
     if not user:
         return None  # Пользователь не найден
     
-    if username:
-        user.username = username
+    if name:
+        user.name = name
     if email:
         user.email = email
     if password:
         user.password_hash = generate_password_hash(password)
-    if steam_id:
-        user.steam_id = steam_id
-    if battlenet_id:
-        user.battlenet_id = battlenet_id
-    if battlenet_region:
-        user.battlenet_region = battlenet_region
     if avatar:
         user.avatar = avatar
     
@@ -70,15 +62,12 @@ def get_user_profile(user_id):
     
     return {
         "id": user.id,
-        "username": user.username,
+        "name": user.name,
         "email": user.email,
-        "steam_id": user.steam_id,
-        "battlenet_id": user.battlenet_id,
-        "battlenet_region": user.battlenet_region,
+        "avatar": user.avatar,
         "admin_role": user.admin_role,
         "is_banned": user.is_banned,
         "ban_time": user.ban_time,
-        "avatar": user.avatar
     }
 
 
@@ -94,9 +83,8 @@ def reset_password(email, new_password):
 
     return True
 
-
-
 #endregion
+
 
 #region Administrating and support
 
@@ -105,14 +93,14 @@ def get_all_users():
     return User.query.all()
 
 
-def ban_user(user_id, ban_days=None):
+def ban_user(user_id, ban_hours=None):
     """Банит пользователя на определенное количество дней (если не указано, бан перманентный)"""
     user = User.query.get(user_id)
     if not user:
         return None  # Пользователь не найден
     
     user.is_banned = True
-    user.ban_time = datetime.now(datetime.timezone.utc) + timedelta(days=ban_days) if ban_days else None  # Если ban_days не указано – бан навсегда
+    user.ban_time = ban_hours if ban_hours else None 
 
     db.session.commit()
     return user  # Возвращаем обновленного пользователя
@@ -131,12 +119,12 @@ def unban_user(user_id):
     return user  # Возвращаем обновленного пользователя
 
 
-def create_support_ticket(user_id, message):
+def create_support_ticket(user_id, theme, text):
     """Создает запрос в поддержку"""
-    if not message.strip():
+    if not theme.strip() or not text.strip():
         return None  # Сообщение не может быть пустым
 
-    ticket = SupportTicket(user_id=user_id, message=message, status="open")
+    ticket = SupportTicket(user_id=user_id, theme=theme, text=text, status="open")
     db.session.add(ticket)
     db.session.commit()
     
@@ -188,7 +176,9 @@ def respond_to_ticket(ticket_id, response):
 
 def send_friend_request(sender_id, receiver_id):
     """Отправка запроса в друзья"""
-    request = FriendRequest(sender_id=sender_id, receiver_id=receiver_id, status="pending")
+    sender = User.query.get(sender_id)
+    receiver = User.query.get(receiver_id)
+    request = UserRequest(from_user=sender, to_user=receiver, type='friend', status="pending")
     db.session.add(request)
     db.session.commit()
     return request
@@ -196,14 +186,14 @@ def send_friend_request(sender_id, receiver_id):
 
 def accept_friend_request(request_id):
     """Принятие заявки в друзья"""
-    friend_request = FriendRequest.query.get(request_id)
+    friend_request = UserRequest.query.get(request_id)
     
     if not friend_request or friend_request.status != "pending":
         return None  # Запрос не найден или уже обработан
 
     # Обновляем статус запроса
     friend_request.status = "accepted"
-
+    #TODO FIX METHOD
     # Добавляем запись в список друзей (если нужно)
     friendship1 = Friendship(user_id=friend_request.sender_id, friend_id=friend_request.receiver_id)
     friendship2 = Friendship(user_id=friend_request.receiver_id, friend_id=friend_request.sender_id)
@@ -217,7 +207,7 @@ def accept_friend_request(request_id):
 
 def reject_friend_request(request_id):
     """Отклонение заявки в друзья"""
-    friend_request = FriendRequest.query.get(request_id)
+    friend_request = UserRequest.query.get(request_id)
 
     if not friend_request or friend_request.status != "pending":
         return None  # Запрос не найден или уже обработан
@@ -230,7 +220,7 @@ def reject_friend_request(request_id):
 
 def get_pending_friend_requests(user_id):
     """Получение списка входящих заявок"""
-    return FriendRequest.query.filter_by(receiver_id=user_id, status="pending").all()
+    return UserRequest.query.filter_by(to_user_id=user_id, status="pending").all()
 
 
 def remove_friend(user_id, friend_id):
@@ -260,7 +250,7 @@ def get_friends(user_id):
 
 #region Connections to external API
 
-def get_or_create_connection(service_name: str, profile_url: str, user_id: UUID):
+def get_or_create_connection(service_name: str, profile_url: str, user: User):
     connection = Connection.query.filter_by(
         service_name=service_name,
         external_user_url=profile_url
@@ -270,7 +260,7 @@ def get_or_create_connection(service_name: str, profile_url: str, user_id: UUID)
         connection = Connection(
             service_name=service_name,
             external_user_url=profile_url,
-            user_id=user_id
+            user=user
         )
         db.session.add(connection)
         db.session.flush()  # Чтобы получить connection.id
@@ -278,16 +268,20 @@ def get_or_create_connection(service_name: str, profile_url: str, user_id: UUID)
     return connection
 
 
-def create_game_account_if_absent(user_id: UUID, connection_id: UUID):
+def create_game_account_if_absent(user_id: UUID, connection_id: UUID, game_id: UUID, service_name: str, external_url):
     account = GameAccount.query.filter_by(
         user_id=user_id,
         connection_id=connection_id
     ).first()
 
     if account is None:
+        user = User.query.get(user_id)
+        game = Game.query.get(game_id)
+        connection = get_or_create_connection(service_name=service_name, profile_url=external_url, user=user)
         account = GameAccount(
-            user_id=user_id,
-            connection_id=connection_id
+            user=user,
+            game=game,
+            connection=connection
         )
         db.session.add(account)
         db.session.commit()

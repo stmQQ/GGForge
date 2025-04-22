@@ -32,3 +32,9 @@ group_teams = db.Table(
     db.Column('group_id', UUID(as_uuid=True), db.ForeignKey('groups.id')),
     db.Column('team_id', UUID(as_uuid=True), db.ForeignKey('teams.id'))
 )
+
+team_members = db.Table(
+    'team_members',
+    db.Column('team_id', UUID(as_uuid=True), db.ForeignKey('teams.id')),
+    db.Column('user_id', UUID(as_uuid=True), db.ForeignKey('users.id'))
+)

@@ -7,8 +7,6 @@ from flask_login import current_user
 
 def create_team(title, desc, logo_path):
     """Создает команду"""
-    if not current_user.is_authenticated:
-        return False
 
     team = Team(title=title, description=desc, logo_path=logo_path)
     
@@ -59,10 +57,10 @@ def invite_user_to_team(from_user_id, to_user_id, team_id):
         raise ValueError("Приглашение уже отправлено")
 
     request = UserRequest(
-        from_user_id=from_user_id,
-        to_user_id=to_user_id,
+        from_user_id=current_user,
+        to_user=User.query.get(to_user_id),
         type='team',
-        team_id=team_id,
+        team=team,
         status='pending'
     )
     db.session.add(request)

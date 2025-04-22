@@ -12,8 +12,8 @@ class Game(db.Model):
     image_path = db.Column(db.String(256), nullable=False, unique=True)
     logo_path = db.Column(db.String(256), nullable=False, unique=True)
     service_name = db.Column(db.String(32), nullable=False)
-    tournaments = db.relationship('Tournament', back_populates='game', lazy=True)
-    achievements = db.relationship('Achievement', bavk_populates='game', lazy=True)
+    tournaments = db.relationship('Tournament', back_populates='game', lazy='selectin')
+    achievements = db.relationship('Achievement', back_populates='game', lazy='selectin')
 
 
 class Achievement(db.Model):
@@ -25,9 +25,9 @@ class Achievement(db.Model):
     description = db.Column(db.String(256))
 
     game_id = db.Column(UUID(as_uuid=True), db.ForeignKey('games.id'), nullable=False)
-    game = db.relationship('Game', bavk_populates='achievements', uselist=False)
+    game = db.relationship('Game', back_populates='achievements', lazy='selectin')
 
-    users = db.relationship('User', secondary='user_achievements', back_populates='achievements')
+    users = db.relationship('User', secondary='user_achievements', back_populates='achievements', lazy='selectin')
 
 
 

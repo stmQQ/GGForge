@@ -16,8 +16,8 @@ class Tournament(db.Model):
     type = db.Column(db.String(16), nullable=False) # solo / team / battle_royal
     status = db.Column(db.String(16), nullable=False, default='scheduled') # scheduled, active, completed
     
-    game_id = db.Column(UUID(as_uuid=True), db.ForeignKey('games.id'), nullable=False, unique=True)
-    game = db.relationship('Game', back_populates='tournaments', uselist=False)
+    game_id = db.Column(UUID(as_uuid=True), db.ForeignKey('games.id'), nullable=False)
+    game = db.relationship('Game', back_populates='tournaments')
 
     group_stage_id = db.Column(UUID(as_uuid=True), db.ForeignKey('group_stages.id'), nullable=False, unique=True)
     group_stage = db.relationship('GroupStage', back_populates='tournament', uselist=False, cascade='all, delete-orphan')
@@ -29,11 +29,11 @@ class Tournament(db.Model):
     prize_table = db.relationship('PrizeTable', backref='tournament', uselist=False, cascade='all, delete-orphan')
 
     creator_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False)
-    creator = db.relationship('User', back_populates='created_tournaments', uselist=False)
+    creator = db.relationship('User', back_populates='created_tournaments')
 
     participants = db.relationship('User', secondary='tournament_participants', back_populates='participated_tournaments')
     teams = db.relationship('Team', secondary='tournament_teams', backref='participated_tournaments')
-    matches = db.relationship('Match', back_populates='tournament', lazy=True)
+    matches = db.relationship('Match', back_populates='tournament', lazy='selectin')
 
 
 class GroupStage(db.Model):
@@ -44,7 +44,7 @@ class GroupStage(db.Model):
     tournament_id = db.Column(UUID(as_uuid=True), db.ForeignKey('tournaments.id'), nullable=False, unique=True)
     tournament = db.relationship('Tournament', back_populates='group_stage', uselist=False)
 
-    groups = db.relationship('Group', back_populates='group_stage', cascade='all, delete-orphan', lazy=True)
+    groups = db.relationship('Group', back_populates='group_stage')
 
     winners_bracket_quaified = db.Column(db.Integer, nullable=False)
     losers_bracket_qualified = db.Column(db.Integer, nullable=True)
@@ -54,15 +54,17 @@ class Group(db.Model):
     __tablename__ = 'groups'
 
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
     letter = db.Column(db.String(4), nullable=False)
     max_participants = db.Column(db.Integer, nullable=False)
-    participants = db.relationship('User', secondary='group_users', back_populates='groups')
-    teams = db.relationship('Team', secondary='group_teams', back_populates='groups')
-    matches = db.relationship('Match', back_populates='group', lazy=True)
-    rows = db.relationship('GroupRow', back_populates='group', lazy=True)
 
     groupstage_id = db.Column(UUID(as_uuid=True), db.ForeignKey('group_stages.id'), nullable=False)
-    group_stage = db.relationship('GroupStage', back_populates='group', uselist=False)
+    group_stage = db.relationship('GroupStage', back_populates='groups')
+
+    participants = db.relationship('User', secondary='group_users', back_populates='groups', lazy='selectin')
+    teams = db.relationship('Team', secondary='group_teams', back_populates='groups', lazy='selectin')
+    matches = db.relationship('Match', back_populates='group', lazy='selectin')
+    rows = db.relationship('GroupRow', back_populates='group', lazy='selectin')
 
 
 class GroupRow(db.Model):
@@ -76,13 +78,13 @@ class GroupRow(db.Model):
     loses = db.Column(db.Integer, nullable=True, default=0)
 
     group_id = db.Column(UUID(as_uuid=True), db.ForeignKey('groups.id'), nullable=False)
-    group = db.relationship('Group', back_populates='rows', uselist=False, cascade='all, delete-orphan')
+    group = db.relationship('Group', back_populates='rows')
 
     user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=True)
-    user = db.relationship('User', back_populates='rows', uselist=False)
+    user = db.relationship('User', back_populates='rows')
 
     team_id = db.Column(UUID(as_uuid=True), db.ForeignKey('teams.id'), nullable=True)
-    team = db.relationship('Team', back_populates='rows', uselist=False)
+    team = db.relationship('Team', back_populates='rows')
 
 
 class PlayoffStage(db.Model):
@@ -106,7 +108,7 @@ class PrizeTable(db.Model):
     tournament_id = db.Column(UUID(as_uuid=True), db.ForeignKey('tournaments.id'), nullable=False, unique=True)
     tournament = db.relationship('Tournament', back_populates='prize_table', uselist=False)
 
-    rows = db.relationship('PrizeTableRow', backref='prize_tabletable', lazy=True, cascade='all, delete-orphan')
+    rows = db.relationship('PrizeTableRow', back_populates='prize_table', lazy=True, cascade='all, delete-orphan')
     # Что здесь добавить???
 
 
@@ -119,14 +121,14 @@ class PrizeTableRow(db.Model):
     place = db.Column(db.Integer, nullable=True)
     prize = db.Column(db.String(16))
 
-    prize_table_id = db.Column(UUID(as_uuid=True), db.Foreignkey('prize_tables.id'), nullable=False)
+    prize_table_id = db.Column(UUID(as_uuid=True), db.ForeignKey('prize_tables.id'), nullable=False)
     prize_table = db.relationship('PrizeTable', back_populates='rows', uselist=False)
 
 
-    user_id = db.Column(UUID(as_uuid=True), db.Foreignkey('users.id'), nullable=True)
+    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=True)
     user = db.relationship('User', back_populates='prizetable_rows', uselist=False)
 
-    team_id = db.Column(UUID(as_uuid=True), db.Foreignkey('teams.id'), nullable=True)
+    team_id = db.Column(UUID(as_uuid=True), db.ForeignKey('teams.id'), nullable=True)
     team = db.relationship('Team', back_populates='prizetable_rows', uselist=False)
 
 

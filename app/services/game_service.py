@@ -3,8 +3,8 @@ from app.models.user_models import User
 from app.extensions import db
 
 
-def add_game(title, image_path):
-    game = Game(title=title, image_path=image_path)
+def add_game(title, image_path, logo_path, service_name):
+    game = Game(title=title, image_path=image_path, logo_path=logo_path, service_name=service_name)
     try:
         db.session.add(game)
         db.session.commit()
@@ -24,7 +24,8 @@ def delete_game(id):
 
 
 def create_achievement(title, description, game_id):
-    achievement = Achievement(title=title, description=description, game_id=game_id)
+    game = Game.query.get(game_id)
+    achievement = Achievement(title=title, description=description, game=game)
     try: 
         db.session.add(achievement)
         db.session.commit()
