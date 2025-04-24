@@ -21,11 +21,11 @@ tournament_teams = db.Table(
     db.Column('team_id', UUID(as_uuid=True), db.ForeignKey('teams.id'))
 )
 
-match_participants = db.Table(
-    'match_participants',
-    db.Column('match_id', UUID(as_uuid=True), db.ForeignKey('matches.id')),
-    db.Column('user_id', UUID(as_uuid=True), db.ForeignKey('users.id'))
-)
+# match_participants = db.Table(
+#     'match_participants',
+#     db.Column('match_id', UUID(as_uuid=True), db.ForeignKey('matches.id')),
+#     db.Column('user_id', UUID(as_uuid=True), db.ForeignKey('users.id'))
+# )
 
 group_teams = db.Table(
     'group_teams',

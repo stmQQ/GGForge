@@ -3,6 +3,7 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB
 from flask_login import UserMixin
 import uuid
 from datetime import datetime, UTC
+from sqlalchemy.sql import func
 
 
 mutual_friend_association = db.Table(
@@ -19,8 +20,9 @@ class User(db.Model, UserMixin):
     email = db.Column(db.String(256), nullable=False, unique=True)
     password_hash = db.Column(db.String(256), nullable=False)
     avatar = db.Column(db.String(128))
-    registration_date = db.Column(db.Date, nullable=False, default=datetime.now(UTC).date)
-    last_online = db.Column(db.DateTime, nullable=False)
+    registration_date = db.Column(db.Date, nullable=False, default=func.now())  
+    last_online = db.Column(db.DateTime, nullable=False, onupdate=func.now())
+    is_online = db.Column(db.Boolean, default=True)
     admin_role = db.Column(db.Boolean, nullable=False)
     is_banned = db.Column(db.Boolean, default=False)
     ban_until = db.Column(db.DateTime)
@@ -80,7 +82,6 @@ class Connection(db.Model):
     user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False)
     user = db.relationship('User', back_populates='connections')
 
-    game_account_id = db.Column(UUID(as_uuid=True), db.ForeignKey('game_accounts.id'), nullable=False)
     game_account = db.relationship('GameAccount', back_populates='connection', uselist=False)
 
  
@@ -96,10 +97,10 @@ class SupportToken(db.Model):
     status = db.Column(db.String(32), nullable=False, default='open')
     response = db.Column(db.Text)
 
-    created_at = db.Column(db.DateTime, default=datetime.now(UTC))
+    created_at = db.Column(db.DateTime, default=func.now())
 
     user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False)
-    user = db.relationship('User', back_populates='support_tokens', uselist=False)
+    user = db.relationship('User', back_populates='support_tokens')
 
 
 class UserRequest(db.Model):
@@ -115,8 +116,8 @@ class UserRequest(db.Model):
     # Только для приглашения в команду
     team_id = db.Column(UUID(as_uuid=True), db.ForeignKey('teams.id'), nullable=True)
 
-    created_at = db.Column(db.DateTime, default=datetime.now(UTC))
-    updated_at = db.Column(db.DateTime, default=datetime.now(UTC), onupdate=datetime.now(UTC))
+    created_at = db.Column(db.DateTime, default=func.now())
+    updated_at = db.Column(db.DateTime, default=func.now(), onupdate=func.now())
 
     from_user = db.relationship('User', back_populates='sent_requests', foreign_keys=[from_user_id])
     to_user = db.relationship('User', back_populates='received_requests', foreign_keys=[to_user_id])

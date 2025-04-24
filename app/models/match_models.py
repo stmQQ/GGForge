@@ -1,7 +1,6 @@
 from app.extensions import db
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import UUID
 import uuid
-from datetime import datetime, UTC
 
 
 class Match(db.Model):
@@ -22,18 +21,14 @@ class Match(db.Model):
 
 
     tournament_id = db.Column(UUID(as_uuid=True), db.ForeignKey('tournaments.id'), nullable=False)
-    tournament = db.relationship('Tournament', back_populates='matches', uselist=False)
+    tournament = db.relationship('Tournament', back_populates='matches')
 
     group_id = db.Column(UUID(as_uuid=True), db.ForeignKey('groups.id'), nullable=True)
-    group = db.relationship('Group', back_populates='matches', uselist=False)
+    group = db.relationship('Group', back_populates='matches')
 
-    playoff_id = db.Column(UUID(as_uuid=True), db.ForeignKey('playoff_stages.id'), nullable=True)
-    playoff_stage = db.relationship('PlayOffStage', back_populates='matches', uselist=False)
-
-    playoff_match_id = db.Column(UUID(as_uuid=True), db.ForeignKey('playoff_stage_matches.id'), nullable=True, unique=True)
     playoff_match = db.relationship('PlayoffStageMatch', back_populates='match', uselist=False)
 
-    maps = db.relationship('Map', back_populates='match', lazy=True)
+    maps = db.relationship('Map', back_populates='match', lazy='selectin')
 
 
 class PlayoffStageMatch(db.Model):
@@ -42,10 +37,18 @@ class PlayoffStageMatch(db.Model):
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     round_number = db.Column(db.String(8), nullable=False)  # W1, L2 и т.д.
 
-    winner_to_match_id = db.Column(UUID(as_uuid=True), nullable=True)
-    loser_to_match_id = db.Column(UUID(as_uuid=True), nullable=True)
-    depends_on_match_1_id = db.Column(UUID(as_uuid=True), nullable=True)
-    depends_on_match_2_id = db.Column(UUID(as_uuid=True), nullable=True)
+    winner_to_match_id = db.Column(UUID(as_uuid=True), db.ForeignKey('playoff_stage_matches.id'), nullable=True)
+    loser_to_match_id = db.Column(UUID(as_uuid=True), db.ForeignKey('playoff_stage_matches.id'), nullable=True)
+    depends_on_match_1_id = db.Column(UUID(as_uuid=True), db.ForeignKey('playoff_stage_matches.id'), nullable=True)
+    depends_on_match_2_id = db.Column(UUID(as_uuid=True), db.ForeignKey('playoff_stage_matches.id'), nullable=True)
+
+    winner_to_match = db.relationship('PlayoffStageMatch', foreign_keys=[winner_to_match_id], remote_side='PlayoffStageMatch.id')
+    loser_to_match = db.relationship('PlayoffStageMatch', foreign_keys=[loser_to_match_id], remote_side='PlayoffStageMatch.id')
+    depends_on_match_1 = db.relationship('PlayoffStageMatch', foreign_keys=[depends_on_match_1_id], remote_side='PlayoffStageMatch.id')
+    depends_on_match_2 = db.relationship('PlayoffStageMatch', foreign_keys=[depends_on_match_2_id], remote_side='PlayoffStageMatch.id')
+
+    playoff_id = db.Column(UUID(as_uuid=True), db.ForeignKey('playoff_stages.id'), nullable=True)
+    playoff_stage = db.relationship('PlayOffStage', back_populates='playoff_matches')
 
     match_id = db.Column(UUID(as_uuid=True), db.ForeignKey('matches.id'), nullable=False, unique=True)
     match = db.relationship('Match', back_populates='playoff_match', uselist=False)
@@ -57,8 +60,8 @@ class Map(db.Model):
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     external_id = db.Column(db.String(128), nullable=True)
-    winner_id = db.Column(UUID(as_uuid=True), nullable=False)
+    winner_id = db.Column(UUID(as_uuid=True), nullable=True)
     
     match_id = db.Column(UUID(as_uuid=True), db.ForeignKey('matches.id'), nullable=False)
-    match = db.relationship('Match', back_populates='maps', uselist=False)
+    match = db.relationship('Match', back_populates='maps')
 
