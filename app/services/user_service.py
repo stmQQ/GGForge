@@ -1,7 +1,7 @@
 from app.models.game_models import Game
-from app.models.user_models import User, FriendRequest, Friendship, SupportTicket, Connection, GameAccount, UserRequest
+from app.models.user_models import User, Connection, GameAccount, UserRequest, TokenBlocklist, SupportToken
 from werkzeug.security import generate_password_hash
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from app.extensions import db
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -16,6 +16,7 @@ def create_user(name, email, password, avatar="default", role=False):
         password_hash=generate_password_hash(password),
         avatar=avatar,
         admin_role=role,
+        last_online=datetime.now(UTC)
         is_banned=False,
         ban_time=None
     )
@@ -24,23 +25,25 @@ def create_user(name, email, password, avatar="default", role=False):
     return user
 
 
-def update_user(user_id, name, email, password, avatar="default"):
-    """Обновляет данные пользователя"""
+def update_user(user_id, name=None, email=None, password=None, avatar=None, last_online=None):
     user = User.query.get(user_id)
     if not user:
-        return None  # Пользователь не найден
-    
-    if name:
+        return None
+
+    if name is not None:
         user.name = name
-    if email:
+    if email is not None:
         user.email = email
-    if password:
+    if password is not None:
         user.password_hash = generate_password_hash(password)
-    if avatar:
+    if avatar is not None:
         user.avatar = avatar
-    
+    if last_online is not None:
+        user.last_online = last_online
+
     db.session.commit()
-    return user  # Возвращаем обновленного пользователя
+    return user
+
 
 
 def delete_user(user_id):
@@ -308,3 +311,8 @@ def unlink_game_account(user_id, connection_id):
         db.session.commit()
 
 
+def remove_expired_tokens():
+    now = datetime.now(UTC)
+    deleted = TokenBlocklist.query.filter(TokenBlocklist.expires < now).delete()
+    db.session.commit()
+    print(f"[Auto-clean] Удалено {deleted} просроченных токенов")

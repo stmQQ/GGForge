@@ -20,7 +20,7 @@ class User(db.Model, UserMixin):
     email = db.Column(db.String(256), nullable=False, unique=True)
     password_hash = db.Column(db.String(256), nullable=False)
     avatar = db.Column(db.String(128))
-    registration_date = db.Column(db.Date, nullable=False, default=func.now())  
+    registration_date = db.Column(db.Date, nullable=False, default=func.current_date())  
     last_online = db.Column(db.DateTime, nullable=False, onupdate=func.now())
     is_online = db.Column(db.Boolean, default=True)
     admin_role = db.Column(db.Boolean, nullable=False)
@@ -122,3 +122,16 @@ class UserRequest(db.Model):
     from_user = db.relationship('User', back_populates='sent_requests', foreign_keys=[from_user_id])
     to_user = db.relationship('User', back_populates='received_requests', foreign_keys=[to_user_id])
     team = db.relationship('Team', back_populates='requests', foreign_keys=[team_id])
+
+
+class TokenBlocklist(db.Model):
+    __tablename__ = 'token_blocklist'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    jti = db.Column(db.String(36), nullable=False, unique=True)
+    token_type = db.Column(db.String(10), nullable=False)  # "access" or "refresh"
+    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=func.now())
+    expires = db.Column(db.DateTime, nullable=False)
+
+    user = db.relationship("User", lazy="joined")
