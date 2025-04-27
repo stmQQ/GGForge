@@ -2,7 +2,8 @@ from flask import Flask
 from .extensions import db, migrate, cors, jwt, login
 from .config import config_by_name
 from .models import *
-from ascheduler_tasks import register_scheduler
+from .ascheduler_tasks import register_scheduler
+
 
 def create_app():
     app = Flask(__name__, static_url_path='', static_folder='static')

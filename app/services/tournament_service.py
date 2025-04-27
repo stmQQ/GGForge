@@ -1,4 +1,4 @@
-#from app.models.user_models import User, FriendRequest, Friendship, SupportTicket
+# from app.models.user_models import User, FriendRequest, Friendship, SupportTicket
 from app.models import *
 from app.extensions import db
 from datetime import datetime
@@ -10,7 +10,7 @@ def get_upcoming_tournaments(user_id):
     """Получение списка предстоящих турниров, в которых зарегистрирован пользователь"""
     return Tournament.query.filter(
         Tournament.start_time > datetime.now(UTC),
-        Tournament.participants.contains(user_id)  # Проверяем, есть ли user_id в списке игроков
+        Tournament.participants.any(User.id == user_id)
     ).all()
 
 
@@ -26,7 +26,6 @@ def get_tournaments_by_game(game_id, status='all'):
             Tournament.game_id == game_id,
             Tournament.status == status
         ).all()
-    
 
 
 def register_for_tournament(id, tournament_id):
@@ -35,7 +34,7 @@ def register_for_tournament(id, tournament_id):
 
     if not tournament or tournament.status != "scheduled":
         return None  # Турнир не найден или уже начался
-    
+
     if tournament.tournament_type in ['solo', 'battle_royal']:
         if id in tournament.participants:
             return None  # Турнир не найден или пользователь не зарегистрирован
@@ -71,11 +70,13 @@ def unregister_from_tournament(id, tournament_id):
         for m in team_members:
             tournament.participants.remove(m)
         tournament.teams.remove(id)
-        
+
     db.session.commit()
     return tournament
 
-#TODO: Исправить сущность
+# TODO: Исправить сущность
+
+
 def create_tournament(title, creator_id, game_id, prize_pool, max_players, tournament_type):
     """Создает новый турнир"""
     tournament = Tournament(
@@ -84,12 +85,12 @@ def create_tournament(title, creator_id, game_id, prize_pool, max_players, tourn
         creator_id=creator_id,
         prize_pool=prize_pool,
         max_players=max_players,
-        tournament_type=tournament_type
+        type=tournament_type
         status="scheduled"  # По умолчанию турнир еще не начался
     )
     db.session.add(tournament)
     db.session.commit()
-    
+
     return tournament
 
 
@@ -145,7 +146,7 @@ def end_tournament(tournament_id, winner):
     return tournament
 
 
-#region Group stage
+# region Group stage
 
 def make_groupstage(tournament_id, participants_per_group, num_groups=None):
     """Создание группового этапа и равномерное распределение участников по группам."""
@@ -183,7 +184,8 @@ def make_groupstage(tournament_id, participants_per_group, num_groups=None):
     ]
 
     if len(chunks) > 26:
-        raise ValueError("Превышен лимит: поддерживается не более 26 групп (A-Z)")
+        raise ValueError(
+            "Превышен лимит: поддерживается не более 26 групп (A-Z)")
 
     for i, group_entities in enumerate(chunks):
         letter = chr(65 + i)  # 'A', 'B', 'C', ...
@@ -196,7 +198,6 @@ def make_groupstage(tournament_id, participants_per_group, num_groups=None):
 
     db.session.commit()
     return group_stage
-            
 
 
 def make_group(groupstage_id, participants, max_participants, letter):
@@ -224,9 +225,11 @@ def generate_single_elimination_bracket(tournament_id):
     ).get(tournament_id)
 
     if tournament.tournament_type == 'solo':
-        participants = sorted(tournament.participants, key=lambda u: u.registration_date)
+        participants = sorted(tournament.participants,
+                              key=lambda u: u.registration_date)
     else:
-        participants = sorted(tournament.teams, key=lambda t: t.id)  # Замени при необходимости на поле с датой регистрации
+        # Замени при необходимости на поле с датой регистрации
+        participants = sorted(tournament.teams, key=lambda t: t.id)
 
     total = len(participants)
     bracket_size = 2 ** math.floor(math.log2(total))
@@ -234,13 +237,15 @@ def generate_single_elimination_bracket(tournament_id):
 
     if cutoff > 0:
         for i in range(cutoff):
-            tournament.participants.remove(participants[-1]) if tournament.tournament_type == 'solo' else tournament.teams.remove(participants[-1])
+            tournament.participants.remove(
+                participants[-1]) if tournament.tournament_type == 'solo' else tournament.teams.remove(participants[-1])
             participants.pop()
         db.session.commit()
 
     seeds = participants
     rounds = []
-    current_round = [{'team1': seeds[i], 'team2': seeds[i + 1]} for i in range(0, bracket_size, 2)]
+    current_round = [{'team1': seeds[i], 'team2': seeds[i + 1]}
+                     for i in range(0, bracket_size, 2)]
     round_num = 1
 
     while current_round:
@@ -299,7 +304,8 @@ def generate_double_elimination_bracket(tournament_id):
     ).get(tournament_id)
 
     if tournament.tournament_type == 'solo':
-        participants = sorted(tournament.participants, key=lambda u: u.registration_date)
+        participants = sorted(tournament.participants,
+                              key=lambda u: u.registration_date)
     else:
         participants = sorted(tournament.teams, key=lambda t: t.id)
 
@@ -309,7 +315,8 @@ def generate_double_elimination_bracket(tournament_id):
 
     if cutoff > 0:
         for i in range(cutoff):
-            tournament.participants.remove(participants[-1]) if tournament.tournament_type == 'solo' else tournament.teams.remove(participants[-1])
+            tournament.participants.remove(
+                participants[-1]) if tournament.tournament_type == 'solo' else tournament.teams.remove(participants[-1])
             participants.pop()
         db.session.commit()
 
@@ -331,7 +338,8 @@ def generate_double_elimination_bracket(tournament_id):
     }
 
     # Winners Bracket
-    current_round = [{'team1': seeds[i], 'team2': seeds[i + 1]} for i in range(0, bracket_size, 2)]
+    current_round = [{'team1': seeds[i], 'team2': seeds[i + 1]}
+                     for i in range(0, bracket_size, 2)]
     for i in range(int(rounds)):
         round_data = {
             'name': f'Winners Round {i + 1}',
@@ -454,7 +462,8 @@ def report_match_result(match_id, winner_id):
         db.session.commit()
 
     # === Обновление плей-офф структуры ===
-    playoff = PlayOffStage.query.filter_by(tournament_id=match.tournament_id).first()
+    playoff = PlayOffStage.query.filter_by(
+        tournament_id=match.tournament_id).first()
     if playoff:
         structure = playoff.structure
         match_id_str = str(match.id)
@@ -480,7 +489,6 @@ def report_match_result(match_id, winner_id):
 
         if updated:
             db.session.commit()
-
 
 
 def create_match(tournament, match_type, team1=None, team2=None, user1=None, user2=None):
@@ -519,15 +527,13 @@ def create_prizetable(tournament_id):
 
 def create_prizetable_row(prize_table, place, prize='-', team=None, user=None):
     result_row: PrizeTableRow = PrizeTableRow(
-        prize_table=prize_table, 
-        place=place, 
-        prize=prize, 
-        team=team, 
+        prize_table=prize_table,
+        place=place,
+        prize=prize,
+        team=team,
         user=user
-        )
+    )
     db.session.add(result_row)
     db.session.flush()
 
     return result_row
-
-    

@@ -119,6 +119,7 @@ def leave_team(team_id, user_id):
     db.session.commit()
 
 
+
 def kick_member(team_id, captain_id, user_to_kick_id):
     """Исключает участника из команды"""
     team = Team.query.get(team_id)

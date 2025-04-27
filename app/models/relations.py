@@ -5,19 +5,23 @@ from datetime import datetime, UTC
 user_achievements = db.Table(
     'user_achievements',
     db.Column('user_id', UUID(as_uuid=True), db.ForeignKey('users.id')),
-    db.Column('achievement_id', UUID(as_uuid=True), db.ForeignKey('achievements.id')),
-    db.Column('unlocked_at', db.DateTime, nullable=False, default=datetime.now(UTC))
+    db.Column('achievement_id', UUID(as_uuid=True),
+              db.ForeignKey('achievements.id')),
+    db.Column('unlocked_at', db.DateTime,
+              nullable=False, default=datetime.now(UTC))
 )
 
 tournament_participants = db.Table(
     'tournament_participants',
-    db.Column('tournament_id', UUID(as_uuid=True), db.ForeignKey('tournaments.id')),
+    db.Column('tournament_id', UUID(as_uuid=True),
+              db.ForeignKey('tournaments.id')),
     db.Column('user_id', UUID(as_uuid=True), db.ForeignKey('users.id'))
 )
 
 tournament_teams = db.Table(
     'tournament_teams',
-    db.Column('tournament_id', UUID(as_uuid=True), db.ForeignKey('tournaments.id')),
+    db.Column('tournament_id', UUID(as_uuid=True),
+              db.ForeignKey('tournaments.id')),
     db.Column('team_id', UUID(as_uuid=True), db.ForeignKey('teams.id'))
 )
 
@@ -26,6 +30,12 @@ tournament_teams = db.Table(
 #     db.Column('match_id', UUID(as_uuid=True), db.ForeignKey('matches.id')),
 #     db.Column('user_id', UUID(as_uuid=True), db.ForeignKey('users.id'))
 # )
+
+group_users = db.Table(
+    'group_users',
+    db.Column('group_id', UUID(as_uuid=True), db.ForeignKey('groups.id')),
+    db.Column('user_id', UUID(as_uuid=True), db.ForeignKey('users.id'))
+)
 
 group_teams = db.Table(
     'group_teams',

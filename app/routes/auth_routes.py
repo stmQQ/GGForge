@@ -9,16 +9,12 @@ from flask_jwt_extended import (
 
 from app.extensions import db, jwt
 from app.models import User, TokenBlocklist
-from app.services.user_service import create_user, update_user
+from app.services.user_service import create_user, update_user, save_avatar
 
 from datetime import timedelta, datetime, UTC
-import uuid
-import os
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
 
-
-UPLOAD_FOLDER = 'static/avatars'
 
 @auth_bp.route('/register', methods=['POST'])
 def register():
@@ -30,16 +26,15 @@ def register():
     if not name or not email or not password:
         return jsonify({'msg': 'Заполните все поля'}), 400
 
-    avatar_filename = "default.png"
-    if avatar_file:
-        ext = os.path.splitext(secure_filename(avatar_file.filename))[1]
-        avatar_filename = f"{uuid.uuid4().hex}{ext}"
-        save_path = os.path.join(current_app.root_path, UPLOAD_FOLDER, avatar_filename)
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        avatar_file.save(save_path)
+    avatar_url = save_avatar(avatar_file) if avatar_file else "/static/avatars/default.png"
 
     try:
-        user = create_user(name=name, email=email, password=password, avatar=f"/{UPLOAD_FOLDER}/{avatar_filename}")
+        user = create_user(name=name, email=email, password=password, avatar=avatar_url)
+        # После создания пользователя переносим аватар в его папку
+        if avatar_file:
+            new_avatar_url = save_avatar(avatar_file, user_id=user.id)
+            user.avatar = new_avatar_url
+            db.session.commit()
     except IntegrityError:
         db.session.rollback()
         return jsonify({'msg': 'Пользователь с таким именем или email уже существует'}), 409
