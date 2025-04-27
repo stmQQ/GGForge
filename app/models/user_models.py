@@ -24,7 +24,7 @@ class User(db.Model, UserMixin):
         db.Date, nullable=False, default=func.current_date())
     last_online = db.Column(db.DateTime, nullable=False, onupdate=func.now())
     is_online = db.Column(db.Boolean, default=True)
-    admin_role = db.Column(db.Boolean, nullable=False)
+    admin_role = db.Column(db.Boolean, nullable=False, default=False)
     is_banned = db.Column(db.Boolean, default=False)
     ban_until = db.Column(db.DateTime)
 

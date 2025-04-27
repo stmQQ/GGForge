@@ -5,7 +5,7 @@ import math
 from sqlalchemy.orm import joinedload
 
 
-def make_group_stage(tournament_id, participants_per_group, num_groups, qual_to_winners, qual_to_losers):
+def make_group_stage(tournament_id, num_groups, qual_to_winners, qual_to_losers):
     tournament: Tournament = Tournament.query.options(
         joinedload(Tournament.participants),
         joinedload(Tournament.teams)
