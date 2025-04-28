@@ -250,7 +250,7 @@ def make_group(groupstage, participants, max_participants, letter):
 
 
 def generate_single_elimination_bracket(tournament):
-    if tournament.tournament_type == 'solo':
+    if tournament.type == 'solo':
         participants = sorted(tournament.participants,
                               key=lambda u: random.random())
     else:
@@ -268,116 +268,237 @@ def generate_single_elimination_bracket(tournament):
                 tournament.teams.remove(participants[-1])
             participants.pop()
 
-    rounds_count = math.log2(bracket_size)
+    rounds_count = int(math.log2(bracket_size))
+    playoff_stage = tournament.playoff_stage
 
-    for i in range(1, rounds_count + 1):
+    matches_by_round = {}
+
+    # Создаем матчи первого раунда
+    first_round = []
+    for i in range(0, len(participants), 2):
+        match = Match(
+            tournament_id=tournament.id,
+            type=tournament.type,
+            format='bo1',  # можно передавать отдельно формат
+            status='upcoming',
+            participant1_id=participants[i].id,
+            participant2_id=participants[i+1].id,
+            is_playoff=True
+        )
+        db.session.add(match)
+        db.session.flush()
+
+        playoff_match = PlayoffStageMatch(
+            round_number=f"W1",
+            match_id=match.id,
+            playoff_stage=playoff_stage
+        )
+        db.session.add(playoff_match)
+        first_round.append(playoff_match)
+    matches_by_round[1] = first_round
+
+    db.session.flush()
+
+    # Создаем матчи для остальных раундов
+    for round_num in range(2, rounds_count + 1):
+        previous_round = matches_by_round[round_num - 1]
+        current_round = []
+
+        for i in range(0, len(previous_round), 2):
+            match = Match(
+                tournament_id=tournament.id,
+                type=tournament.type,
+                format='bo1',
+                status='upcoming',
+                is_playoff=True
+            )
+            db.session.add(match)
+            db.session.flush()
+
+            playoff_match = PlayoffStageMatch(
+                round_number=f"W{round_num}",
+                match_id=match.id,
+                playoff_stage=playoff_stage,
+                depends_on_match_1_id=previous_round[i].id,
+                depends_on_match_2_id=previous_round[i+1].id
+            )
+            db.session.add(playoff_match)
+
+            # Установить победные связи предыдущим матчам
+            previous_round[i].winner_to_match_id = playoff_match.id
+            previous_round[i+1].winner_to_match_id = playoff_match.id
+
+            current_round.append(playoff_match)
+
+        matches_by_round[round_num] = current_round
+
+    db.session.commit()
 
 
-def generate_double_elimination_bracket(tournament_id):
-    tournament = Tournament.query.options(
-        joinedload(Tournament.participants),
-        joinedload(Tournament.teams)
-    ).get(tournament_id)
-
-    if tournament.tournament_type == 'solo':
+def generate_double_elimination_bracket(tournament):
+    if tournament.type == 'solo':
         participants = sorted(tournament.participants,
-                              key=lambda u: u.registration_date)
+                              key=lambda u: random.random())
     else:
-        participants = sorted(tournament.teams, key=lambda t: t.id)
+        participants = sorted(tournament.teams, key=lambda t: random.random())
 
     total = len(participants)
     bracket_size = 2 ** math.floor(math.log2(total))
     cutoff = total - bracket_size
 
     if cutoff > 0:
-        for i in range(cutoff):
-            tournament.participants.remove(
-                participants[-1]) if tournament.type == 'solo' else tournament.teams.remove(participants[-1])
-            participants.pop()
-        db.session.commit()
-
-    seeds = participants
-    rounds = math.log2(bracket_size)
-
-    structure = {
-        'type': 'double',
-        'winners_bracket': [],
-        'losers_bracket': [],
-        'final': {
-            'match': {
-                'id': str(uuid.uuid4()),
-                'team1': 'TBD',
-                'team2': 'TBD',
-                'winner': None
-            }
-        }
-    }
-
-    # Winners Bracket
-    current_round = [{'team1': seeds[i], 'team2': seeds[i + 1]}
-                     for i in range(0, bracket_size, 2)]
-    for i in range(int(rounds)):
-        round_data = {
-            'name': f'Winners Round {i + 1}',
-            'matches': []
-        }
-        next_round = []
-        for match in current_round:
-            match_id = uuid.uuid4()
-            round_data['matches'].append({
-                'id': str(match_id),
-                'team1': match['team1'].name,
-                'team2': match['team2'].name,
-                'winner': None
-            })
-
-            db_match = Match(
-                id=match_id,
-                match_type=tournament.tournament_type,
-                tournament=tournament
-            )
-
-            if tournament.tournament_type == 'solo':
-                db_match.user1 = match['team1']
-                db_match.user2 = match['team2']
+        for _ in range(cutoff):
+            if tournament.type == 'solo':
+                tournament.participants.remove(participants[-1])
             else:
-                db_match.team1 = match['team1']
-                db_match.team2 = match['team2']
+                tournament.teams.remove(participants[-1])
+            participants.pop()
 
-            db.session.add(db_match)
-            next_round.append({'team1': 'TBD', 'team2': 'TBD'})
+    rounds_count = int(math.log2(bracket_size))
+    playoff_stage = tournament.playoff_stage
 
-        structure['winners_bracket'].append(round_data)
-        current_round = next_round
+    upper_bracket = {}
+    lower_bracket = {}
+    match_id_map = {}
 
-    # Losers Bracket (placeholder)
-    for i in range(int(rounds)):
-        structure['losers_bracket'].append({
-            'name': f'Losers Round {i + 1}',
-            'matches': [{
-                'id': str(uuid.uuid4()),
-                'team1': 'TBD',
-                'team2': 'TBD',
-                'winner': None
-            } for _ in range(2**(i))]
-        })
+    # Создаем первый раунд верхней сетки
+    first_round_upper = []
+    for i in range(0, len(participants), 2):
+        match = Match(
+            tournament_id=tournament.id,
+            type=tournament.type,
+            format='bo1',
+            status='upcoming',
+            participant1_id=participants[i].id,
+            participant2_id=participants[i+1].id,
+            is_playoff=True
+        )
+        db.session.add(match)
+        db.session.flush()
 
-    # Гранд-финал матч
+        playoff_match = PlayoffStageMatch(
+            round_number=f"W1",
+            match_id=match.id,
+            playoff_stage=playoff_stage
+        )
+        db.session.add(playoff_match)
+        first_round_upper.append(playoff_match)
+        match_id_map[playoff_match.id] = playoff_match
+    upper_bracket[1] = first_round_upper
+
+    db.session.flush()
+
+    # Строим верхнюю сетку
+    for round_num in range(2, rounds_count + 1):
+        previous_round = upper_bracket[round_num - 1]
+        current_round = []
+
+        for i in range(0, len(previous_round), 2):
+            match = Match(
+                tournament_id=tournament.id,
+                type=tournament.type,
+                format='bo1',
+                status='upcoming',
+                is_playoff=True
+            )
+            db.session.add(match)
+            db.session.flush()
+
+            playoff_match = PlayoffStageMatch(
+                round_number=f"W{round_num}",
+                match_id=match.id,
+                playoff_stage=playoff_stage,
+                depends_on_match_1_id=previous_round[i].id,
+                depends_on_match_2_id=previous_round[i+1].id
+            )
+            db.session.add(playoff_match)
+
+            # Победители идут дальше по верхней сетке
+            previous_round[i].winner_to_match_id = playoff_match.id
+            previous_round[i+1].winner_to_match_id = playoff_match.id
+
+            # Проигравшие пойдут в нижнюю сетку (создадим позже)
+            current_round.append(playoff_match)
+            match_id_map[playoff_match.id] = playoff_match
+
+        upper_bracket[round_num] = current_round
+
+    db.session.flush()
+
+    # Строим нижнюю сетку
+    lower_round_counter = 1
+    previous_lower_round = []
+
+    for upper_round_num in range(1, rounds_count):
+        losers = upper_bracket[upper_round_num]
+
+        for i, loser in enumerate(losers):
+            match = Match(
+                tournament_id=tournament.id,
+                type=tournament.type,
+                format='bo1',
+                status='upcoming',
+                is_playoff=True
+            )
+            db.session.add(match)
+            db.session.flush()
+
+            playoff_match = PlayoffStageMatch(
+                round_number=f"L{lower_round_counter}",
+                match_id=match.id,
+                playoff_stage=playoff_stage
+            )
+            db.session.add(playoff_match)
+
+            if previous_lower_round:
+                # Проигравший с прошлого раунда нижней сетки
+                prev = previous_lower_round.pop(0)
+                playoff_match.depends_on_match_1_id = prev.id
+                prev.winner_to_match_id = playoff_match.id
+
+            playoff_match.depends_on_match_2_id = loser.id
+            loser.loser_to_match_id = playoff_match.id
+
+            previous_lower_round.append(playoff_match)
+            match_id_map[playoff_match.id] = playoff_match
+
+            lower_bracket[lower_round_counter] = lower_bracket.get(
+                lower_round_counter, []) + [playoff_match]
+
+        lower_round_counter += 1
+
+    db.session.flush()
+
+    # Финалисты
+    # Победитель верхней сетки vs Победитель нижней сетки
     final_match = Match(
-        id=uuid.UUID(structure['final']['match']['id']),
-        match_type=tournament.tournament_type,
-        tournament=tournament
+        tournament_id=tournament.id,
+        type=tournament.type,
+        format='bo3',  # финал может быть bo3
+        status='upcoming',
+        is_playoff=True
     )
     db.session.add(final_match)
+    db.session.flush()
 
-    playoff = PlayoffStage(
-        tournament=tournament,
-        structure=structure
+    final_playoff = PlayoffStageMatch(
+        round_number="GF",  # Grand Final
+        match_id=final_match.id,
+        playoff_stage=playoff_stage
     )
-    db.session.add(playoff)
-    db.session.commit()
+    db.session.add(final_playoff)
 
-    return structure
+    # Связываем победителей верхней и нижней сетки
+    upper_finalist = upper_bracket[rounds_count][0]
+    lower_finalist = previous_lower_round.pop(0)
+
+    final_playoff.depends_on_match_1_id = upper_finalist.id
+    final_playoff.depends_on_match_2_id = lower_finalist.id
+
+    upper_finalist.winner_to_match_id = final_playoff.id
+    lower_finalist.winner_to_match_id = final_playoff.id
+
+    db.session.commit()
 
 
 def report_match_result(match_id, winner_id):
