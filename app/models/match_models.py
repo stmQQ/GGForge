@@ -11,11 +11,11 @@ class Match(db.Model):
     format = db.Column(db.String(8), nullable=False)  # bo1/bo3...
     # upcoming/ongoing/concluded
     status = db.Column(db.String(16), nullable=False)
-    scheduled_time = db.Column(db.DateTime)
+    # scheduled_time = db.Column(db.DateTime)
     is_playoff = db.Column(db.Boolean, default=False, nullable=False)
 
-    participant1_id = db.Column(UUID(as_uuid=True), nullable=False)
-    participant2_id = db.Column(UUID(as_uuid=True), nullable=False)
+    participant1_id = db.Column(UUID(as_uuid=True), nullable=True)
+    participant2_id = db.Column(UUID(as_uuid=True), nullable=True)
     participant1_score = db.Column(db.Integer, default=0)
     participant2_score = db.Column(db.Integer, default=0)
     winner_id = db.Column(UUID(as_uuid=True), nullable=True)

@@ -11,7 +11,6 @@ from app.services.user_service import save_avatar
 
 
 def get_upcoming_tournaments(user_id):
-    """Получение списка предстоящих турниров, в которых зарегистрирован пользователь"""
     return Tournament.query.filter(
         Tournament.start_time > datetime.now(UTC),
         Tournament.participants.any(User.id == user_id)
@@ -21,83 +20,63 @@ def get_upcoming_tournaments(user_id):
 def get_tournaments_by_game(game_id, status='all'):
     if status not in ['all', 'scheduled', 'active', 'completed']:
         return None
-    if status == 'all':
-        return Tournament.query.filter(
-            Tournament.game_id == game_id
-        ).all()
-    else:
-        return Tournament.query.filter(
-            Tournament.game_id == game_id,
-            Tournament.status == status
-        ).all()
+    query = Tournament.query.filter(Tournament.game_id == game_id)
+    if status != 'all':
+        query = query.filter(Tournament.status == status)
+    return query.all()
 
 
 def register_for_tournament(id, tournament_id):
-    """Добавляет пользователя в список участников турнира"""
     tournament = Tournament.query.get(tournament_id)
-
     if not tournament or tournament.status != "scheduled":
-        return None  # Турнир не найден или уже начался
+        return None
 
     if tournament.tournament_type in ['solo', 'battle_royal']:
         if id in tournament.participants:
-            return None  # Турнир не найден или пользователь не зарегистрирован
+            return None
         tournament.participants.append(id)
     elif tournament.tournament_type == 'team':
-        team: Team = Team.query.get(id)
-        team_members = team.players
-
-        if id in tournament.teams or any(m in tournament.participants for m in team_members):
+        team = Team.query.get(id)
+        if not team or id in tournament.teams:
             return None
+        for member in team.players:
+            if member in tournament.participants:
+                return None
         tournament.teams.append(id)
-        for m in team_members:
-            tournament.participants.append(m)
+        tournament.participants.extend(team.players)
 
     db.session.commit()
     return tournament
 
 
 def unregister_from_tournament(id, tournament_id):
-    """Удаляет пользователя или команду из списка участников турнира"""
-    tournament: Tournament = Tournament.query.get(tournament_id)
+    tournament = Tournament.query.get(tournament_id)
     if not tournament:
         return None
+
     if tournament.tournament_type in ['solo', 'battle_royal']:
         if id not in tournament.participants:
-            return None  # Турнир не найден или пользователь не зарегистрирован
+            return None
         tournament.participants.remove(id)
     elif tournament.tournament_type == 'team':
         if id not in tournament.teams:
             return None
-        team: Team = Team.query.get(id)
-        team_members = team.players
-        for m in team_members:
-            tournament.participants.remove(m)
+        team = Team.query.get(id)
         tournament.teams.remove(id)
+        for member in team.players:
+            if member in tournament.participants:
+                tournament.participants.remove(member)
 
     db.session.commit()
     return tournament
-
 # TODO: Исправить сущность
 
 
 def create_tournament(
-    title,
-    creator_id,
-    game_id,
-    max_players,
-    type,
-    start_time_str,
-    prize_pool='0',
-    banner_file=None,
-    has_group_stage=True,
-    elimination_type='single',
-    num_groups=2,
-    qual_to_winners=2,
-    qual_to_losers=2
+    title, creator_id, game_id, max_players, type, start_time_str,
+    prize_pool='0', banner_file=None, has_group_stage=True,
+    elimination_type='single', num_groups=2, qual_to_winners=2, qual_to_losers=2
 ):
-    """Создает новый турнир без привязки к Flask"""
-
     if not all([title, game_id, max_players, type, start_time_str]):
         raise ValueError('Заполните все обязательные поля')
 
@@ -122,75 +101,77 @@ def create_tournament(
         max_players=max_players,
         type=type,
         status="scheduled",
-        banner_url=banner_url,
+        banner_url=banner_url
     )
 
     db.session.add(tournament)
-    db.session.flush()  # чтобы получить id турнира до коммита
+    db.session.flush()
 
     if has_group_stage:
         group_stage = make_group_stage(
-            tournament_id=tournament.id, num_groups=num_groups, qual_to_winners=qual_to_winners, qual_to_losers=qual_to_losers)
+            tournament=tournament,
+            num_groups=num_groups,
+            qual_to_winners=qual_to_winners,
+            qual_to_losers=qual_to_losers
+        )
         db.session.add(group_stage)
+    else:
+        playoff_stage = PlayoffStage(tournament=tournament)
+        db.session.add(playoff_stage)
+        db.session.flush()
+        if elimination_type == 'single':
+            generate_single_elimination_bracket(tournament)
+        else:
+            generate_double_elimination_bracket(tournament)
 
     db.session.commit()
-
     return tournament
 
 
 def update_tournament(tournament_id, new_data):
-    """Обновляет информацию о турнире"""
     tournament = Tournament.query.get(tournament_id)
-
     if not tournament:
-        return None  # Турнир не найден
-
+        return None
     for key, value in new_data.items():
-        setattr(tournament, key, value)  # Обновляем поля
-
+        setattr(tournament, key, value)
     db.session.commit()
     return tournament
 
 
 def delete_tournament(tournament_id):
-    """Удаляет турнир"""
     tournament = Tournament.query.get(tournament_id)
-
     if not tournament:
-        return None  # Турнир не найден
-
+        return None
     db.session.delete(tournament)
     db.session.commit()
     return True
 
 
 def start_tournament(tournament_id):
-    """Переводит турнир в статус 'active' (запущен)"""
     tournament = Tournament.query.get(tournament_id)
-
     if not tournament or tournament.status != "scheduled":
-        return None  # Турнир не найден или уже активен
+        return None
 
     tournament.status = "active"
-    db.session.commit()
+
     return tournament
 
 
-def end_tournament(tournament_id, winner):
-    """Завершает турнир и объявляет победителя"""
+def complete_tournament(tournament_id):
     tournament = Tournament.query.get(tournament_id)
-
-    if not tournament or tournament.status != "active":
-        return None  # Турнир не найден или неактивен
-
-    tournament.status = "completed"
-    tournament.winner = winner
+    if not tournament or tournament.status == 'completed':
+        return
+    tournament.status = 'completed'
+    db.session.add(tournament)
+    for match in tournament.matches:
+        if match.status != 'concluded':
+            match.status = 'concluded'
+            db.session.add(match)
     create_prizetable(tournament_id)
     db.session.commit()
-    return tournament
-
 
 # region Group stage
+
 
 def make_group_stage(tournament, num_groups, qual_to_winners, qual_to_losers):
 
@@ -501,136 +482,148 @@ def generate_double_elimination_bracket(tournament):
     db.session.commit()
 
 
-def report_match_result(match_id, winner_id):
-    match = Match.query.get(match_id)
-    if not match:
-        return
+def complete_map(map_id, winner_id):
+    from app.models import Map, db
 
-    is_team = match.match_type != 'solo'
+    game_map = db.session.get(Map, map_id)
+    if not game_map:
+        raise ValueError("Карта не найдена")
 
-    winner = (
-        match.team1 if is_team and str(match.team1.id) == str(winner_id) else
-        match.team2 if is_team and str(match.team2.id) == str(winner_id) else
-        match.user1 if not is_team and str(match.user1.id) == str(winner_id) else
-        match.user2 if not is_team else None
-    )
-
-    if not winner:
-        raise ValueError("Неверный победитель")
-
-    # Определяем проигравшего
-    loser = (
-        match.team2 if is_team and winner == match.team1 else
-        match.team1 if is_team else
-        match.user2 if winner == match.user1 else
-        match.user1
-    )
-
-    match.winner_id = winner.id
+    game_map.winner_id = winner_id
     db.session.commit()
 
-    # === Обновление статистики ===
-    if match.group_id:
-        group = Group.query.get(match.group_id)
-        stats = group.stats or {}
+    match = game_map.match
 
-        win_id = str(winner.id)
-        lose_id = str(loser.id)
+    # Проверка, завершены ли все карты
+    if all(m.winner_id for m in match.maps):
+        complete_match(match.id)
 
-        for pid in [win_id, lose_id]:
-            if pid not in stats:
-                stats[pid] = {
-                    'points': 0,
-                    'wins': 0,
-                    'losses': 0,
-                    'draws': 0,
-                    'matches_played': 0,
-                    'round_difference': 0
-                }
 
-        stats[win_id]['points'] += 3
-        stats[win_id]['wins'] += 1
-        stats[win_id]['matches_played'] += 1
+def complete_match(match_id):
+    from app.models import Match, db
 
-        stats[lose_id]['losses'] += 1
-        stats[lose_id]['matches_played'] += 1
+    match = db.session.get(Match, match_id)
+    if not match:
+        raise ValueError("Матч не найден")
 
-        group.stats = stats
+    participant1_score = sum(
+        1 for m in match.maps if m.winner_id == match.participant1_id)
+    participant2_score = sum(
+        1 for m in match.maps if m.winner_id == match.participant2_id)
+
+    match.participant1_score = participant1_score
+    match.participant2_score = participant2_score
+
+    if participant1_score > participant2_score:
+        match.winner_id = match.participant1_id
+    elif participant2_score > participant1_score:
+        match.winner_id = match.participant2_id
+    else:
+        raise ValueError("Невозможно определить победителя: ничья")
+
+    match.status = 'concluded'
+    db.session.commit()
+
+    # Обновляем следующую стадию, если это матч плейоффа
+    if match.playoff_match:
+        update_next_match_participants(match.playoff_match)
+
+
+def update_next_match_participants(playoff_match):
+    from app.models import db
+
+    winner_id = playoff_match.match.winner_id
+
+    # Обновляем следующий матч для победителя
+    if playoff_match.winner_to_match:
+        next_match = playoff_match.winner_to_match.match
+        if not next_match.participant1_id:
+            next_match.participant1_id = winner_id
+        elif not next_match.participant2_id:
+            next_match.participant2_id = winner_id
         db.session.commit()
 
-    # === Обновление плей-офф структуры ===
-    playoff = PlayoffStage.query.filter_by(
-        tournament_id=match.tournament_id).first()
-    if playoff:
-        structure = playoff.structure
-        match_id_str = str(match.id)
-
-        def propagate_winner(rounds):
-            for r in rounds:
-                for m in r['matches']:
-                    if m.get('id') == match_id_str:
-                        m['winner'] = winner.name
-                        return True
-            return False
-
-        updated = False
-        if 'winners_bracket' in structure:
-            updated = propagate_winner(structure['winners_bracket']) or updated
-        if 'losers_bracket' in structure:
-            updated = propagate_winner(structure['losers_bracket']) or updated
-        if 'rounds' in structure:
-            updated = propagate_winner(structure['rounds']) or updated
-        if 'final' in structure and structure['final'].get('match', {}).get('id') == match_id_str:
-            structure['final']['match']['winner'] = winner.name
-            updated = True
-
-        if updated:
-            db.session.commit()
-
-
-def create_match(tournament, match_type, team1=None, team2=None, user1=None, user2=None):
-    match = Match(
-        id=uuid.uuid4(),
-        match_type=match_type,
-        tournament=tournament,
-        team1=team1,
-        team2=team2,
-        user1=user1,
-        user2=user2,
-        result=None
+    # Обновляем следующий матч для проигравшего
+    loser_id = (
+        playoff_match.match.participant2_id
+        if playoff_match.match.winner_id == playoff_match.match.participant1_id
+        else playoff_match.match.participant1_id
     )
-    db.session.add(match)
-    return match
+
+    if playoff_match.loser_to_match:
+        next_loser_match = playoff_match.loser_to_match.match
+        if not next_loser_match.participant1_id:
+            next_loser_match.participant1_id = loser_id
+        elif not next_loser_match.participant2_id:
+            next_loser_match.participant2_id = loser_id
+        db.session.commit()
 
 
 def create_prizetable(tournament_id):
-    """Создает таблицу результатов после завершения турнира"""
     tournament: Tournament = Tournament.query.get(tournament_id)
     if not tournament:
         return None
-    table = PrizeTable(tournament_id=tournament_id)
+
+    table = PrizeTable(tournament=tournament)
     db.session.add(table)
     db.session.flush()
 
-    if tournament.type == 'team':
-        entities = tournament.teams
-    else:
-        entities = tournament.participants
+    is_team = tournament.type == 'team'
+    prize_pool = int(tournament.prize_pool or 0)
 
-    data = tournament.playoff_stage.structure
-    for e in entities:
-        row = create_prizetable_row(table.id, )
+    # Получаем все завершённые матчи турнира
+    concluded_matches = [
+        m for m in tournament.matches if m.status == 'concluded']
+
+    # Вычисляем рейтинг на основе количества побед
+    win_counter = {}
+
+    for match in concluded_matches:
+        winner_id = match.winner_id
+        if not winner_id:
+            continue
+
+        key = winner_id if is_team else match.get_user_id_from_participant(
+            winner_id)
+        win_counter[key] = win_counter.get(key, 0) + 1
+
+    # Сортируем по количеству побед
+    placement = sorted(win_counter.items(),
+                       key=lambda item: item[1], reverse=True)
+    top_entities = [entity_id for entity_id, _ in placement[:6]]
+
+    prize_distribution = {
+        1: 0.45,
+        2: 0.25,
+        3: 0.10,
+        4: 0.10,
+        5: 0.05,
+        6: 0.05
+    }
+
+    for i, entity_id in enumerate(top_entities, start=1):
+        prize_amount = round(prize_pool * prize_distribution.get(i, 0))
+        if is_team:
+            team = next((t for t in tournament.teams if str(
+                t.id) == str(entity_id)), None)
+            create_prizetable_row(table.id, i, prize=prize_amount, team=team)
+        else:
+            user = next((u for u in tournament.participants if str(
+                u.id) == str(entity_id)), None)
+            create_prizetable_row(table.id, i, prize=prize_amount, user=user)
+
+    db.session.commit()
+    return table
 
 
-def create_prizetable_row(prize_table, place, prize='-', team=None, user=None):
-    result_row: PrizeTableRow = PrizeTableRow(
-        prize_table=prize_table,
+def create_prizetable_row(prize_table_id, place, prize='-', team=None, user=None):
+    row = PrizeTableRow(
+        prize_table_id=prize_table_id,
         place=place,
-        prize=prize,
+        prize=str(prize),
         team=team,
         user=user
     )
-    db.session.add(result_row)
+    db.session.add(row)
     db.session.flush()
-
-    return result_row
+    return row

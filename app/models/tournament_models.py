@@ -12,10 +12,10 @@ class Tournament(db.Model):
     start_time = db.Column(db.DateTime, nullable=False, default=func.now())
     prize_pool = db.Column(db.String(8), default='0')
     max_players = db.Column(db.Integer, nullable=False)
-    # solo / team / battle_royal
+    # solo / team
     type = db.Column(db.String(16), nullable=False)
-    # scheduled, active, completed
-    status = db.Column(db.String(16), nullable=False, default='scheduled')
+    # setup, scheduled, active, completed, canceled
+    status = db.Column(db.String(16), nullable=False, default='setup')
     banner_url = db.Column(db.String(128))
 
     game_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
