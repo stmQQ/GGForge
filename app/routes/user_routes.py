@@ -1,4 +1,6 @@
 from flask import Blueprint, request, jsonify
+from uuid import UUID
+import uuid
 from werkzeug.security import check_password_hash, generate_password_hash
 from flask_jwt_extended import (
     create_access_token, create_refresh_token, jwt_required,
@@ -6,14 +8,19 @@ from flask_jwt_extended import (
 )
 from app.extensions import db
 from app.models import User, Connection, UserRequest, GameAccount
-from app.services.user_service import create_support_ticket, get_user_profile, get_user_tickets, update_user, save_avatar, delete_avatar, create_game_account_if_absent, unlink_game_account
+from app.services.user_service import (
+    create_support_ticket, get_user_profile, get_user_tickets, update_user,
+    save_avatar, delete_avatar, create_game_account_if_absent, unlink_game_account
+)
+from app.schemas import (
+    UserSchema, UserRequestSchema, GameAccountSchema, SupportTokenSchema
+)  # Import necessary schemas
+from datetime import datetime, UTC
 
-from datetime import timedelta
+user_bp = Blueprint('user', __name__, url_prefix='/api/users')
 
-user_bp = Blueprint('user', __name__, url_prefix='/api/user')
+# region Profiles
 
-
-#region Profiles
 
 @user_bp.route('/profile/<uuid:user_id>', methods=['GET'])
 def get_profile(user_id):
@@ -22,15 +29,10 @@ def get_profile(user_id):
     if not user:
         return jsonify({'msg': 'Пользователь не найден'}), 404
 
-    return jsonify({
-        'id': str(user.id),
-        'name': user.name,
-        'avatar': user.avatar,
-        'last_online': user.last_online.isoformat() if user.last_online else None
-    }), 200
+    user_schema = UserSchema(only=('id', 'name', 'avatar', 'last_online'))
+    return user_schema.dump(user), 200
 
 
-# Просмотр своего профиля
 @user_bp.route('/me', methods=['GET'])
 @jwt_required()
 def get_my_profile():
@@ -40,17 +42,11 @@ def get_my_profile():
     if not user:
         return jsonify({'msg': 'Пользователь не найден'}), 404
 
-    return jsonify({
-        'id': str(user.id),
-        'name': user.name,
-        'email': user.email,
-        'avatar': user.avatar,
-        'last_online': user.last_online.isoformat() if user.last_online else None,
-        'is_banned': str(user.is_banned),
-        'ban_time': user.ban_time.isoformat() if user.ban_time else None,
-    }), 200
+    user_schema = UserSchema(
+        only=('id', 'name', 'email', 'avatar', 'last_online', 'is_banned', 'ban_until'))
+    return user_schema.dump(user), 200
 
-# Обновление своего профиля
+
 @user_bp.route('/me', methods=['PUT'])
 @jwt_required()
 def update_my_profile():
@@ -68,10 +64,7 @@ def update_my_profile():
     avatar_url = None
     if avatar_file:
         try:
-            # Удаляем старый аватар
             delete_avatar(user.avatar)
-
-            # Пытаемся сохранить новый аватар
             avatar_url = save_avatar(avatar_file, user_id=user_id)
         except ValueError as e:
             return jsonify({'msg': str(e)}), 400
@@ -84,18 +77,13 @@ def update_my_profile():
         avatar=avatar_url
     )
 
-    return jsonify({
+    user_schema = UserSchema(only=('id', 'name', 'email', 'avatar'))
+    return {
         'msg': 'Профиль обновлен',
-        'user': {
-            'id': str(updated_user.id),
-            'name': updated_user.name,
-            'email': updated_user.email,
-            'avatar': updated_user.avatar
-        }
-    }), 200
+        'user': user_schema.dump(updated_user)
+    }, 200
 
 
-# Удаление своего аккаунта
 @user_bp.route('/me', methods=['DELETE'])
 @jwt_required()
 def delete_my_profile():
@@ -108,7 +96,7 @@ def delete_my_profile():
     db.session.delete(user)
     db.session.commit()
 
-    return jsonify({'msg': 'Пользователь успешно удален'}), 200
+    return {'msg': 'Пользователь успешно удален'}, 200
 
 
 @user_bp.route('/me/password', methods=['PATCH'])
@@ -124,15 +112,13 @@ def change_password():
     current_password = data.get('current_password')
     new_password = data.get('new_password')
 
-    # Проверяем текущий пароль
     if not check_password_hash(user.password_hash, current_password):
         return jsonify({'msg': 'Неверный текущий пароль'}), 401
 
-    # Обновляем пароль
     user.password_hash = generate_password_hash(new_password)
     db.session.commit()
 
-    return jsonify({'msg': 'Пароль успешно изменен'}), 200
+    return {'msg': 'Пароль успешно изменен'}, 200
 
 
 @user_bp.route('/me/avatar', methods=['PATCH'])
@@ -150,10 +136,7 @@ def change_avatar():
         return jsonify({'msg': 'Пожалуйста, загрузите новый аватар'}), 400
 
     try:
-        # Удаляем старый аватар
         delete_avatar(user.avatar)
-
-        # Сохраняем новый аватар
         avatar_url = save_avatar(avatar_file, user_id=user_id)
     except ValueError as e:
         return jsonify({'msg': str(e)}), 400
@@ -161,7 +144,7 @@ def change_avatar():
     user.avatar = avatar_url
     db.session.commit()
 
-    return jsonify({'msg': 'Аватар успешно обновлен', 'avatar': avatar_url}), 200
+    return {'msg': 'Аватар успешно обновлен', 'avatar': avatar_url}, 200
 
 
 @user_bp.route('/me/ping', methods=['POST'])
@@ -174,12 +157,12 @@ def user_ping():
         return jsonify({'msg': 'Пользователь не найден'}), 404
 
     user.is_online = True
-    user.last_online = datetime.utcnow()
+    user.last_online = datetime.now(UTC)
     db.session.commit()
 
-    return jsonify({'msg': 'Пинг получен'}), 200
+    return {'msg': 'Пинг получен'}, 200
 
-#endregion
+# endregion
 
 
 @user_bp.route('/search', methods=['GET'])
@@ -191,43 +174,57 @@ def search_user():
 
     users = User.query.filter(User.name.ilike(f"%{nickname}%")).all()
 
-    if not users:
-        return jsonify({'msg': 'Пользователи не найдены'}), 404
-
-    return jsonify([
-        {
-            'id': str(user.id),
-            'name': user.name,
-            'avatar': user.avatar
-        } for user in users
-    ]), 200
+    user_schema = UserSchema(many=True, only=('id', 'name', 'avatar'))
+    return user_schema.dump(users), 200
 
 
 @user_bp.route('/me/friends', methods=['POST'])
 @jwt_required()
 def send_friend_request():
     user_id = get_jwt_identity()
-    target_user_id = request.json.get('target_user_id')
 
+    # Получаем JSON из запроса
+    data = request.get_json()
+    if not data or 'target_user_id' not in data:
+        return jsonify({'msg': 'Не указан target_user_id'}), 400
+
+    target_user_id_str = data['target_user_id']
+
+    # Проверяем и преобразуем target_user_id в UUID
+    try:
+        target_user_id = UUID(target_user_id_str)
+    except ValueError:
+        return jsonify({'msg': 'Некорректный формат target_user_id'}), 400
+
+    # Проверяем, что пользователь не отправляет заявку самому себе
     if user_id == target_user_id:
         return jsonify({'msg': 'Нельзя отправить заявку самому себе'}), 400
 
+    # Проверяем существование целевого пользователя
     target_user = User.query.get(target_user_id)
-
     if not target_user:
         return jsonify({'msg': 'Пользователь не найден'}), 404
 
-    # Проверка на уже существующие заявки
-    existing_request = UserRequest.query.filter_by(from_user_id=user_id, to_user_id=target_user_id).first()
+    # Проверяем, не отправлена ли уже заявка
+    existing_request = UserRequest.query.filter_by(
+        from_user_id=user_id, to_user_id=target_user_id).first()
     if existing_request:
         return jsonify({'msg': 'Заявка уже отправлена'}), 400
 
-    # Создаем новую заявку
-    friend_request = UserRequest(from_user_id=user_id, to_user_id=target_user_id)
-    db.session.add(friend_request)
-    db.session.commit()
+    # Создаём новую заявку
+    friend_request = UserRequest(
+        from_user_id=user_id,
+        to_user_id=target_user_id,
+        type='friend'
+    )
 
-    return jsonify({'msg': 'Заявка на дружбу отправлена'}), 200
+    try:
+        db.session.add(friend_request)
+        db.session.commit()
+        return jsonify({'msg': 'Заявка на дружбу отправлена'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'msg': f'Ошибка при сохранении заявки: {str(e)}'}), 500
 
 
 @user_bp.route('/me/friends/requests', methods=['GET'])
@@ -235,43 +232,63 @@ def send_friend_request():
 def get_friend_requests():
     user_id = get_jwt_identity()
 
-    incoming_requests = UserRequest.query.filter_by(to_user_id=user_id).all()
-    outgoing_requests = UserRequest.query.filter_by(from_user_id=user_id).all()
+    try:
+        # Преобразуем user_id в UUID, если он строка
+        user_id_uuid = UUID(user_id) if isinstance(user_id, str) else user_id
+    except ValueError:
+        return jsonify({'msg': 'Некорректный формат user_id'}), 400
+
+    # Получаем входящие и исходящие заявки
+    incoming_requests = UserRequest.query.filter_by(
+        to_user_id=user_id_uuid).all()
+    outgoing_requests = UserRequest.query.filter_by(
+        from_user_id=user_id_uuid).all()
+
+    # Настраиваем схему для сериализации
+    user_request_schema = UserRequestSchema(
+        many=True,
+        only=('id', 'from_user', 'to_user')
+    )
+
+    # Сериализуем заявки
+    try:
+        incoming_data = user_request_schema.dump(incoming_requests)
+        outgoing_data = user_request_schema.dump(outgoing_requests)
+    except Exception as e:
+        return jsonify({'msg': f'Ошибка сериализации: {str(e)}'}), 500
 
     return jsonify({
-        'incoming_requests': [{'id': str(req.from_user.id), 'name': req.from_user.name} for req in incoming_requests],
-        'outgoing_requests': [{'id': str(req.to_user.id), 'name': req.to_user.name} for req in outgoing_requests]
+        'incoming_requests': incoming_data,
+        'outgoing_requests': outgoing_data
     }), 200
 
 
 @user_bp.route('/me/friends/requests/<uuid:request_id>', methods=['POST'])
 @jwt_required()
 def respond_to_friend_request(request_id):
-    user_id = get_jwt_identity()
-    action = request.json.get('action')  # 'accept' или 'reject'
+    user_id = UUID(get_jwt_identity())
+
+    action = request.json.get('action')
 
     friend_request = UserRequest.query.get(request_id)
-
     if not friend_request:
         return jsonify({'msg': 'Заявка не найдена'}), 404
-
     if friend_request.to_user_id != user_id:
         return jsonify({'msg': 'Это не ваша заявка'}), 403
 
     if action == 'accept':
-        # Добавляем пользователя в друзья
         user = User.query.get(user_id)
         user.friends.append(friend_request.from_user)
         db.session.delete(friend_request)
         db.session.commit()
 
-        return jsonify({'msg': 'Заявка на дружбу принята'}), 200
+        return {'msg': 'Заявка на дружбу принята'}, 200
 
     elif action == 'reject':
         db.session.delete(friend_request)
         db.session.commit()
 
-        return jsonify({'msg': 'Заявка отклонена'}), 200
+        return {'msg': 'Заявка отклонена'}, 200
 
     return jsonify({'msg': 'Неверное действие'}), 400
 
@@ -285,16 +302,8 @@ def get_friends():
     if not user:
         return jsonify({'msg': 'Пользователь не найден'}), 404
 
-    friends = [
-        {
-            'id': str(friend.id),
-            'name': friend.name,
-            'avatar': friend.avatar
-        }
-        for friend in user.friends
-    ]
-
-    return jsonify(friends), 200
+    user_schema = UserSchema(only=('friends',))
+    return user_schema.dump(user)['friends'], 200
 
 
 @user_bp.route('/me/friends/<uuid:friend_id>', methods=['DELETE'])
@@ -310,15 +319,14 @@ def remove_friend(friend_id):
     if friend not in user.friends:
         return jsonify({'msg': 'Этот пользователь не в списке ваших друзей'}), 400
 
-    # Удаляем дружбу в обе стороны
     user.friends.remove(friend)
     friend.friends.remove(user)
     db.session.commit()
 
-    return jsonify({'msg': 'Друг удален'}), 200
+    return {'msg': 'Друг удален'}, 200
 
+# region GameAccounts
 
-#region GameAccounts
 
 @user_bp.route('/me/game_accounts', methods=['POST'])
 @jwt_required()
@@ -337,7 +345,6 @@ def add_game_account():
     if not user:
         return jsonify({'msg': 'Пользователь не найден'}), 404
 
-    # Проверка: есть ли уже у этого пользователя такой connection
     existing_connection = Connection.query.filter_by(
         service_name=service_name,
         external_user_url=external_user_url,
@@ -353,7 +360,6 @@ def add_game_account():
         if existing_account:
             return jsonify({'msg': 'Такой игровой аккаунт уже привязан'}), 409
 
-    # Создаем аккаунт, если всё чисто
     account = create_game_account_if_absent(
         user_id=user_id,
         connection_id=None,
@@ -362,15 +368,12 @@ def add_game_account():
         external_url=external_user_url
     )
 
-    return jsonify({
+    game_account_schema = GameAccountSchema(only=(
+        'id', 'game_id', 'connection.service_name', 'connection.external_user_url'))
+    return {
         'msg': 'Игровой аккаунт успешно добавлен',
-        'account': {
-            'id': str(account.id),
-            'game_id': str(account.game_id),
-            'service_name': account.connection.service_name,
-            'external_user_url': account.connection.external_user_url
-        }
-    }), 201
+        'account': game_account_schema.dump(account)
+    }, 201
 
 
 @user_bp.route('/me/game_accounts/<uuid:connection_id>', methods=['DELETE'])
@@ -378,10 +381,9 @@ def add_game_account():
 def delete_game_account(connection_id):
     user_id = get_jwt_identity()
 
-    # Разрываем связь
     unlink_game_account(user_id=user_id, connection_id=connection_id)
 
-    return jsonify({'msg': 'Игровой аккаунт успешно удален'}), 200
+    return {'msg': 'Игровой аккаунт успешно удален'}, 200
 
 
 @user_bp.route('/me/game_accounts', methods=['GET'])
@@ -393,22 +395,12 @@ def list_game_accounts():
     if not user:
         return jsonify({'msg': 'Пользователь не найден'}), 404
 
-    accounts = [
-        {
-            'id': str(acc.id),
-            'game_id': str(acc.game_id),
-            'service_name': acc.connection.service_name,
-            'external_user_url': acc.connection.external_user_url
-        }
-        for acc in user.game_accounts
-    ]
+    game_account_schema = GameAccountSchema(many=True, only=(
+        'id', 'game_id', 'connection.service_name', 'connection.external_user_url'))
+    return game_account_schema.dump(user.game_accounts), 200
 
-    return jsonify(accounts), 200
+# region SupportTickets
 
-#endregion
-
-
-#region SupportTickets
 
 @user_bp.route('/me/support_tickets', methods=['POST'])
 @jwt_required()
@@ -427,16 +419,12 @@ def create_ticket():
     if ticket is None:
         return jsonify({'msg': 'Сообщение не может быть пустым'}), 400
 
-    return jsonify({
+    support_token_schema = SupportTokenSchema(
+        only=('id', 'theme', 'text', 'status', 'created_at'))
+    return {
         'msg': 'Тикет успешно создан',
-        'ticket': {
-            'id': str(ticket.id),
-            'theme': ticket.theme,
-            'text': ticket.text,
-            'status': ticket.status,
-            'created_at': ticket.created_at.isoformat() if hasattr(ticket, 'created_at') else None
-        }
-    }), 201
+        'ticket': support_token_schema.dump(ticket)
+    }, 201
 
 
 @user_bp.route('/me/support_tickets', methods=['GET'])
@@ -445,15 +433,8 @@ def get_my_tickets():
     user_id = get_jwt_identity()
     tickets = get_user_tickets(user_id=user_id)
 
-    return jsonify([
-        {
-            'id': str(ticket.id),
-            'theme': ticket.theme,
-            'text': ticket.text,
-            'status': ticket.status,
-            'created_at': ticket.created_at.isoformat() if hasattr(ticket, 'created_at') else None
-        }
-        for ticket in tickets
-    ]), 200
+    support_token_schema = SupportTokenSchema(
+        many=True, only=('id', 'theme', 'text', 'status', 'created_at'))
+    return support_token_schema.dump(tickets), 200
 
-#endregion
+# endregion

@@ -10,7 +10,7 @@ class Tournament(db.Model):
 
     title = db.Column(db.String(64), unique=True, nullable=False)
     start_time = db.Column(db.DateTime, nullable=False, default=func.now())
-    prize_pool = db.Column(db.String(8), default='0')
+    prize_fund = db.Column(db.String(8), default='0')
     max_players = db.Column(db.Integer, nullable=False)
     # solo / team
     type = db.Column(db.String(16), nullable=False)

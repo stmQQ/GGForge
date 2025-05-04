@@ -4,7 +4,7 @@ from datetime import timedelta
 
 class DevConfig(BaseConfig):
     DEBUG = True
-    SQLALCHEMY_DATABASE_URI = "sqlite:///test.db"
+    SQLALCHEMY_DATABASE_URI = "postgresql://postgres:postgres@localhost/dev_db"
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     JWT_BLACKLIST_ENABLED = True
     JWT_BLACKLIST_TOKEN_CHECKS = ["access", "refresh"]

@@ -23,7 +23,7 @@ def create_user(name, email, password, avatar="default", role=False):
         admin_role=role,
         last_online=datetime.now(UTC),
         is_banned=False,
-        ban_time=None
+        ban_until=None
     )
     db.session.add(user)
     db.session.commit()
@@ -75,7 +75,7 @@ def get_user_profile(user_id):
         "avatar": user.avatar,
         "admin_role": user.admin_role,
         "is_banned": user.is_banned,
-        "ban_time": user.ban_time,
+        "ban_until": user.ban_until,
     }
 
 
@@ -142,7 +142,7 @@ def ban_user(user_id, ban_hours=None):
         return None  # Пользователь не найден
 
     user.is_banned = True
-    user.ban_time = ban_hours if ban_hours else None
+    user.ban_until = ban_hours if ban_hours else None
 
     db.session.commit()
     return user  # Возвращаем обновленного пользователя
@@ -155,7 +155,7 @@ def unban_user(user_id):
         return None  # Пользователь не найден
 
     user.is_banned = False
-    user.ban_time = None  # Обнуляем время бана
+    user.ban_until = None  # Обнуляем время бана
 
     db.session.commit()
     return user  # Возвращаем обновленного пользователя
