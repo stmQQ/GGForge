@@ -9,7 +9,7 @@ class Match(db.Model):
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     type = db.Column(db.String(16), nullable=False)  # solo/team
     format = db.Column(db.String(8), nullable=False)  # bo1/bo3...
-    # upcoming/ongoing/concluded
+    # upcoming/ongoing/completed
     status = db.Column(db.String(16), nullable=False)
     scheduled_time = db.Column(db.DateTime)
     is_playoff = db.Column(db.Boolean, default=False, nullable=False)
@@ -39,6 +39,7 @@ class PlayoffStageMatch(db.Model):
 
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     round_number = db.Column(db.String(8), nullable=False)  # W1, L2 и т.д.
+    bracket = db.Column(db.String(8), nullable=False)
 
     winner_to_match_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
         'playoff_stage_matches.id'), nullable=True)

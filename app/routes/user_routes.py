@@ -181,7 +181,7 @@ def search_user():
 @user_bp.route('/me/friends', methods=['POST'])
 @jwt_required()
 def send_friend_request():
-    user_id = get_jwt_identity()
+    user_id = UUID(get_jwt_identity())
 
     # Получаем JSON из запроса
     data = request.get_json()
@@ -279,6 +279,7 @@ def respond_to_friend_request(request_id):
     if action == 'accept':
         user = User.query.get(user_id)
         user.friends.append(friend_request.from_user)
+        friend_request.from_user.friends.append(user)
         db.session.delete(friend_request)
         db.session.commit()
 

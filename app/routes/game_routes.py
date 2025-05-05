@@ -27,6 +27,7 @@ def is_admin_user():
 def get_games():
     """Retrieve all games."""
     games = get_all_games()
+    print('I am here')
     game_schema = GameSchema(many=True, only=(
         'id', 'title', 'image_path', 'logo_path', 'service_name'))
     return game_schema.dump(games), 200
