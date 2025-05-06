@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from uuid import UUID
 import uuid
+from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 from flask_jwt_extended import (
     create_access_token, create_refresh_token, jwt_required,
@@ -370,21 +371,38 @@ def add_game_account():
     )
 
     game_account_schema = GameAccountSchema(only=(
-        'id', 'game_id', 'connection.service_name', 'connection.external_user_url'))
+        'id', 'game.id', 'game.title', 'connection.service_name', 'connection.external_user_url'))
     return {
         'msg': 'Игровой аккаунт успешно добавлен',
         'account': game_account_schema.dump(account)
     }, 201
 
 
-@user_bp.route('/me/game_accounts/<uuid:connection_id>', methods=['DELETE'])
+@user_bp.route('/me/game_accounts/<uuid:game_account_id>', methods=['DELETE'])
 @jwt_required()
-def delete_game_account(connection_id):
+def delete_game_account(game_account_id):
+    """Delete a game account for the authenticated user."""
     user_id = get_jwt_identity()
 
-    unlink_game_account(user_id=user_id, connection_id=connection_id)
+    # Преобразуем user_id в UUID, если это строка
+    try:
+        user_id_uuid = UUID(user_id) if isinstance(user_id, str) else user_id
+    except ValueError:
+        return jsonify({'msg': 'Некорректный формат user_id'}), 400
 
-    return {'msg': 'Игровой аккаунт успешно удален'}, 200
+    try:
+        result = unlink_game_account(game_account_id, user_id_uuid)
+        return jsonify({'msg': result}), 200
+    except ValueError as e:
+        return jsonify({'msg': str(e)}), 404
+    except PermissionError:
+        return jsonify({'msg': 'Нет прав для удаления этого аккаунта'}), 403
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({'msg': 'Ошибка базы данных при удалении аккаунта'}), 500
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'msg': f'Неизвестная ошибка: {str(e)}'}), 500
 
 
 @user_bp.route('/me/game_accounts', methods=['GET'])
@@ -397,7 +415,7 @@ def list_game_accounts():
         return jsonify({'msg': 'Пользователь не найден'}), 404
 
     game_account_schema = GameAccountSchema(many=True, only=(
-        'id', 'game_id', 'connection.service_name', 'connection.external_user_url'))
+        'id', 'game.id', 'game.title', 'connection.service_name', 'connection.external_user_url'))
     return game_account_schema.dump(user.game_accounts), 200
 
 # region SupportTickets

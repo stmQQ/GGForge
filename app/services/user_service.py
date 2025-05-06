@@ -333,24 +333,37 @@ def create_game_account_if_absent(user_id: UUID, connection_id: UUID, game_id: U
     return account
 
 
-def unlink_game_account(user_id, connection_id):
-    account = GameAccount.query.filter_by(
-        user_id=user_id,
-        connection_id=connection_id
-    ).first()
+def unlink_game_account(game_account_id, user_id):
+    """
+    Unlink a game account and its connection if unused.
+    Raises:
+        ValueError: If the game account or connection is not found.
+        PermissionError: If the user does not own the account.
+    """
+    # Проверяем существование аккаунта
+    account = GameAccount.query.get(game_account_id)
+    if not account:
+        raise ValueError('Игровой аккаунт не найден')
 
-    if account:
-        db.session.delete(account)
+    # Проверяем, принадлежит ли аккаунт текущему пользователю
+    if account.user_id != user_id:
+        raise PermissionError('Нет прав для удаления этого аккаунта')
 
-        # Удалим connection, если он больше нигде не используется
-        count = GameAccount.query.filter_by(
-            connection_id=connection_id).count()
-        if count == 0:
-            conn = Connection.query.get(connection_id)
-            if conn:
-                db.session.delete(conn)
+    # Удаляем аккаунт
+    db.session.delete(account)
 
-        db.session.commit()
+    # Проверяем, остались ли другие аккаунты с этим connection_id
+    count = GameAccount.query.filter_by(
+        connection_id=account.connection_id).count()
+    if count == 0:
+        conn = Connection.query.get(account.connection_id)
+        if conn:
+            db.session.delete(conn)
+        else:
+            raise ValueError('Соединение не найдено')
+
+    db.session.commit()
+    return 'Игровой аккаунт успешно удалён'
 
 
 def remove_expired_tokens():

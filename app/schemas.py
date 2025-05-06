@@ -44,7 +44,8 @@ class GameAccountSchema(SQLAlchemyAutoSchema):
 
     user = fields.Nested('UserSchema', only=('id', 'name'))
     game = fields.Nested('GameSchema', only=('id', 'title'))
-    connection = fields.Nested(ConnectionSchema, only=('id', 'service_name'))
+    connection = fields.Nested(ConnectionSchema, only=(
+        'id', 'service_name', 'external_user_url'))
 
 
 class SupportTokenSchema(SQLAlchemyAutoSchema):
