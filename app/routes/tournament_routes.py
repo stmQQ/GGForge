@@ -1,17 +1,16 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from uuid import UUID
-from datetime import datetime, UTC
+from datetime import datetime
 from sqlalchemy.exc import IntegrityError
-
 from app.extensions import db
-from app.models import Tournament, User, Game, Team
+from app.models import Tournament, User, Game
 from app.services.tournament_service import (
     get_tournaments_by_game, get_tournaments_by_participant,
     get_tournaments_by_creator, get_tournament, get_tournament_group_stage,
     get_tournament_playoff_stage, get_tournament_prize_table,
     get_group_stage_matches, get_playoff_stage_matches, get_all_tournament_matches,
-    get_match, create_match, update_match_results, update_map_results
+    get_match, create_match, update_match_results, update_map_results, create_tournament
 )
 from app.schemas import (
     TournamentSchema, GroupStageSchema, PlayoffStageSchema, PrizeTableSchema,
@@ -37,69 +36,102 @@ def is_tournament_creator_or_admin(tournament_id: UUID):
 @tournament_bp.route('/', methods=['POST'])
 @jwt_required()
 def create_new_tournament():
-    """Create a new tournament."""
-    data = request.get_json()
+    """Create a new tournament with automatic stage generation."""
     creator_id = get_jwt_identity()
-    creator = User.query.get(creator_id)
+    try:
+        creator_id_uuid = UUID(creator_id) if isinstance(
+            creator_id, str) else creator_id
+    except ValueError:
+        return jsonify({'msg': 'Некорректный формат creator_id'}), 400
 
+    creator = User.query.get(creator_id_uuid)
     if not creator:
         return jsonify({'msg': 'Пользователь не найден'}), 404
 
-    title = data.get('title')
-    game_id = data.get('game_id')
-    start_time = data.get('start_time')
-    format = data.get('format')
-    max_participants = data.get('max_participants')
-    prize_fund = data.get('prize_fund')
-    status = data.get('status')
+    data = request.get_json()
+    if not data:
+        return jsonify({'msg': 'Отсутствуют данные'}), 400
 
-    if not all([title, game_id, start_time, format]):
-        return jsonify({'msg': 'Необходимо указать title, game_id, start_time и format'}), 400
+    required_fields = ['title', 'game_id', 'start_time', 'type']
+    missing_fields = [
+        field for field in required_fields if field not in data or data[field] is None]
+    if missing_fields:
+        return jsonify({'msg': f'Необходимо указать: {", ".join(missing_fields)}'}), 400
 
-    game = Game.query.get(game_id)
+    try:
+        game_id_uuid = UUID(data['game_id']) if isinstance(
+            data['game_id'], str) else data['game_id']
+    except ValueError:
+        return jsonify({'msg': 'Некорректный формат game_id'}), 400
+
+    game = Game.query.get(game_id_uuid)
     if not game:
         return jsonify({'msg': 'Игра не найдена'}), 404
 
+    if data['type'] not in ['solo', 'team']:
+        return jsonify({'msg': 'Тип турнира должен быть "solo" или "team"'}), 400
+
     try:
-        start_time = datetime.fromisoformat(start_time)
+        start_time = datetime.fromisoformat(
+            data['start_time'].replace('Z', '+00:00'))
     except (ValueError, TypeError):
-        return jsonify({'msg': 'Неверный формат start_time, ожидается ISO формат'}), 400
+        return jsonify({'msg': 'Неверный формат start_time (ожидается ISO, например: 2024-05-20T15:00:00Z)'}), 400
 
-    tournament = Tournament(
-        title=title,
-        game_id=game_id,
-        creator_id=creator_id,
-        start_time=start_time,
-        format=format,
-        max_participants=max_participants,
-        prize_fund=prize_fund,
-        status=status
-    )
+    status = data.get('status', 'open')
+    if status not in ['open', 'active', 'completed', 'canceled']:
+        return jsonify({'msg': 'Недопустимый статус турнира'}), 400
+
+    has_group_stage = data.get('has_group_stage', False)
+    if has_group_stage:
+        required_group_fields = [
+            'num_groups', 'max_participants_per_group', 'playoff_participants_count']
+        missing_group_fields = [
+            field for field in required_group_fields if field not in data or data[field] is None]
+        if missing_group_fields:
+            return jsonify({'msg': f'Для группового этапа укажите: {", ".join(missing_group_fields)}'}), 400
 
     try:
-        db.session.add(tournament)
+        tournament = create_tournament(
+            title=data['title'],
+            game_id=game_id_uuid,
+            creator_id=creator_id_uuid,
+            start_time=start_time,
+            type_=data['type'],
+            max_participants=data.get('max_participants', 32),
+            prize_fund=data.get('prize_fund'),
+            status=status,
+            has_group_stage=has_group_stage,
+            has_playoff=data.get('has_playoff', True),
+            num_groups=data.get('num_groups'),
+            max_participants_per_group=data.get('max_participants_per_group'),
+            playoff_participants_count=data.get(
+                'playoff_participants_count')
+        )
         db.session.commit()
+    except ValueError as e:
+        return jsonify({'msg': str(e)}), 400
     except IntegrityError:
         db.session.rollback()
         return jsonify({'msg': 'Турнир с таким названием уже существует'}), 409
 
     tournament_schema = TournamentSchema(
-        only=('id', 'title', 'game_id', 'start_time', 'format', 'status'))
-    return {
+        only=('id', 'title', 'game_id', 'start_time', 'type', 'status')
+    )
+    return jsonify({
         'msg': 'Турнир успешно создан',
         'tournament': tournament_schema.dump(tournament)
-    }, 201
+    }), 201
 
 
 @tournament_bp.route('/game/<uuid:game_id>', methods=['GET'])
-def get_tournaments_by_game(game_id: UUID):
+def get_tournaments_by_game_route(game_id: UUID):
     """Retrieve all tournaments for a specific game."""
     try:
         tournaments = get_tournaments_by_game(game_id)
         tournament_schema = TournamentSchema(
             many=True,
-            only=('id', 'title', 'start_time', 'format',
-                  'status', 'max_participants', 'prize_fund')
+            only=('id', 'title', 'start_time',
+                  'status', 'max_players', 'prize_fund')
         )
         return tournament_schema.dump(tournaments), 200
     except ValueError:
@@ -116,7 +148,7 @@ def get_participant_tournaments():
         tournament_schema = TournamentSchema(
             many=True,
             only=('id', 'title', 'game.title',
-                  'start_time', 'format', 'status')
+                  'start_time', 'status')
         )
         return tournament_schema.dump(tournaments), 200
     except ValueError:
@@ -133,7 +165,7 @@ def get_creator_tournaments():
         tournament_schema = TournamentSchema(
             many=True,
             only=('id', 'title', 'game.title',
-                  'start_time', 'format', 'status')
+                  'start_time', 'status')
         )
         return tournament_schema.dump(tournaments), 200
     except ValueError:
@@ -146,15 +178,15 @@ def get_tournament(tournament_id: UUID):
     tournament = get_tournament(tournament_id)
     tournament_schema = TournamentSchema(
         only=(
-            'id', 'title', 'game.title', 'creator.name', 'start_time', 'format',
-            'max_participants', 'prize_fund', 'status', 'participants', 'teams'
+            'id', 'title', 'game.title', 'creator.name', 'start_time',
+            'max_players', 'prize_fund', 'status', 'participants', 'teams'
         )
     )
     return tournament_schema.dump(tournament), 200
 
 
 @tournament_bp.route('/<uuid:tournament_id>/group-stage', methods=['GET'])
-def get_tournament_group_stage(tournament_id: UUID):
+def get_tournament_group_stage_route(tournament_id: UUID):
     """Retrieve the group stage of a tournament."""
     group_stage = get_tournament_group_stage(tournament_id)
     if not group_stage:
@@ -165,7 +197,7 @@ def get_tournament_group_stage(tournament_id: UUID):
 
 
 @tournament_bp.route('/<uuid:tournament_id>/playoff-stage', methods=['GET'])
-def get_tournament_playoff_stage(tournament_id: UUID):
+def get_tournament_playoff_stage_route(tournament_id: UUID):
     """Retrieve the playoff stage of a tournament."""
     playoff_stage = get_tournament_playoff_stage(tournament_id)
     if not playoff_stage:
@@ -176,7 +208,7 @@ def get_tournament_playoff_stage(tournament_id: UUID):
 
 
 @tournament_bp.route('/<uuid:tournament_id>/prize-table', methods=['GET'])
-def get_tournament_prize_table(tournament_id: UUID):
+def get_tournament_prize_table_route(tournament_id: UUID):
     """Retrieve the prize table of a tournament."""
     prize_table = get_tournament_prize_table(tournament_id)
     if not prize_table:
@@ -275,6 +307,7 @@ def create_match_route(tournament_id: UUID):
             type=type_,
             format=format_
         )
+        db.session.commit()
         match_schema = MatchSchema(
             only=(
                 'id', 'tournament_id', 'participant1_id', 'participant2_id',

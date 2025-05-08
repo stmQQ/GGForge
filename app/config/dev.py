@@ -10,4 +10,4 @@ class DevConfig(BaseConfig):
     JWT_BLACKLIST_TOKEN_CHECKS = ["access", "refresh"]
     JWT_SECRET_KEY = 'your-super-secret-key'
     JWT_TOKEN_LOCATION = ['headers']
-    JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=30)
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=180)

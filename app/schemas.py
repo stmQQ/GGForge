@@ -171,7 +171,7 @@ class PlayoffStageSchema(SQLAlchemyAutoSchema):
         load_instance = True
 
     playoff_matches = fields.List(fields.Nested(
-        'PlayoffStageMatchSchema', only=('id', 'round')))
+        'PlayoffStageMatchSchema', only=('id', 'round_number', 'winner_to_match_id', 'loser_to_match_id', 'depends_on_match_1_id', 'depends_on_match_2_id')))
 
 
 class TournamentSchema(SQLAlchemyAutoSchema):

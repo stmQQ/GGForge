@@ -56,7 +56,6 @@ class GroupStage(db.Model):
     groups = db.relationship('Group', back_populates='group_stage')
 
     winners_bracket_qualified = db.Column(db.Integer, nullable=False)
-    losers_bracket_qualified = db.Column(db.Integer, nullable=True)
 
 
 class Group(db.Model):

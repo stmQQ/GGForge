@@ -430,7 +430,7 @@ def create_ticket():
     theme = data.get('theme')
     text = data.get('text')
 
-    if not theme or not text:
+    if not text:
         return jsonify({'msg': 'Тема и текст обязательны'}), 400
 
     ticket = create_support_ticket(user_id=user_id, theme=theme, text=text)
@@ -439,7 +439,7 @@ def create_ticket():
         return jsonify({'msg': 'Сообщение не может быть пустым'}), 400
 
     support_token_schema = SupportTokenSchema(
-        only=('id', 'theme', 'text', 'status', 'created_at'))
+        only=('id', 'text', 'status', 'created_at'))
     return {
         'msg': 'Тикет успешно создан',
         'ticket': support_token_schema.dump(ticket)
@@ -453,7 +453,7 @@ def get_my_tickets():
     tickets = get_user_tickets(user_id=user_id)
 
     support_token_schema = SupportTokenSchema(
-        many=True, only=('id', 'theme', 'text', 'status', 'created_at'))
+        many=True, only=('id', 'text', 'status', 'created_at', 'response'))
     return support_token_schema.dump(tickets), 200
 
 # endregion

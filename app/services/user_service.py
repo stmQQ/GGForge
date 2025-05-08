@@ -163,11 +163,11 @@ def unban_user(user_id):
 
 def create_support_ticket(user_id, theme, text):
     """Создает запрос в поддержку"""
-    if not theme.strip() or not text.strip():
+    if not text.strip():
         return None  # Сообщение не может быть пустым
 
-    ticket = SupportTicket(user_id=user_id, theme=theme,
-                           text=text, status="open")
+    ticket = SupportToken(user_id=user_id,
+                          text=text, status="open")
     db.session.add(ticket)
     db.session.commit()
 
@@ -176,17 +176,17 @@ def create_support_ticket(user_id, theme, text):
 
 def get_all_tickets():
     """Возвращает список всех тикетов"""
-    return SupportTicket.query.all()
+    return SupportToken.query.all()
 
 
 def get_user_tickets(user_id):
     """Возвращает список тикетов пользователя"""
-    return SupportTicket.query.filter_by(user_id=user_id).all()
+    return SupportToken.query.filter_by(user_id=user_id).all()
 
 
 def update_ticket_status(ticket_id, status):
     """Обновляет статус тикета в поддержку (open, in_progress, closed)"""
-    ticket = SupportTicket.query.get(ticket_id)
+    ticket = SupportToken.query.get(ticket_id)
 
     if not ticket:
         return None  # Тикет не найден
@@ -202,13 +202,13 @@ def update_ticket_status(ticket_id, status):
 
 def respond_to_ticket(ticket_id, response):
     """Добавляет ответ администратора в тикет"""
-    ticket = SupportTicket.query.get(ticket_id)
+    ticket = SupportToken.query.get(ticket_id)
 
     if not ticket or ticket.status == "closed":
         return None  # Тикет не найден или уже закрыт
 
     ticket.response = response
-    ticket.status = "in_progress"  # Меняем статус, если он еще открыт
+    ticket.status = "closed"  # Меняем статус, если он еще открыт
     db.session.commit()
 
     return ticket

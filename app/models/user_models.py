@@ -109,7 +109,7 @@ class SupportToken(db.Model):
 
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    theme = db.Column(db.String(64), nullable=False)
+    # theme = db.Column(db.String(64), nullable=False)
     text = db.Column(db.Text, nullable=False)
     status = db.Column(db.String(32), nullable=False, default='open')
     response = db.Column(db.Text)
