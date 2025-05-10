@@ -13,14 +13,14 @@ from sqlalchemy.dialects.postgresql import UUID
 
 # region User operations
 
-def create_user(name, email, password, avatar="default", role=False):
+def create_user(name, email, password, avatar="default", is_admin=False):
     """Создает нового пользователя"""
     user: User = User(
         name=name,
         email=email,
         password_hash=generate_password_hash(password),
         avatar=avatar,
-        admin_role=role,
+        is_admin=is_admin,
         last_online=datetime.now(UTC),
         is_banned=False,
         ban_until=None

@@ -23,7 +23,7 @@ user_bp = Blueprint('user', __name__, url_prefix='/api/users')
 # region Profiles
 
 
-@user_bp.route('/profile/<uuid:user_id>', methods=['GET'])
+@user_bp.route('/<uuid:user_id>', methods=['GET'])
 def get_profile(user_id):
     user = User.query.get(user_id)
 

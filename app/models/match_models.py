@@ -21,17 +21,20 @@ class Match(db.Model):
     winner_id = db.Column(UUID(as_uuid=True), nullable=True)
 
     tournament_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
-        'tournaments.id'), nullable=False)
+        'tournaments.id', ondelete='CASCADE'), nullable=False)
     tournament = db.relationship('Tournament', back_populates='matches')
 
     group_id = db.Column(UUID(as_uuid=True),
                          db.ForeignKey('groups.id'), nullable=True)
     group = db.relationship('Group', back_populates='matches')
 
+    playoff_match_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'playoff_stage_matches.id', ondelete='CASCADE'), nullable=True, unique=True)
     playoff_match = db.relationship(
         'PlayoffStageMatch', back_populates='match', uselist=False)
 
-    maps = db.relationship('Map', back_populates='match', lazy='selectin')
+    maps = db.relationship('Map', back_populates='match',
+                           lazy='selectin', cascade='all, delete-orphan')
 
 
 class PlayoffStageMatch(db.Model):
@@ -60,14 +63,14 @@ class PlayoffStageMatch(db.Model):
                                          depends_on_match_2_id], remote_side='PlayoffStageMatch.id')
 
     playoff_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
-        'playoff_stages.id'), nullable=True)
+        'playoff_stages.id', ondelete='CASCADE'), nullable=False)
     playoff_stage = db.relationship(
         'PlayoffStage', back_populates='playoff_matches')
 
-    match_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
-        'matches.id'), nullable=False, unique=True)
+    # match_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+    #     'matches.id', nullable=False, unique=True))
     match = db.relationship(
-        'Match', back_populates='playoff_match', uselist=False)
+        'Match', back_populates='playoff_match', uselist=False, cascade='all, delete-orphan')
 
 
 class Map(db.Model):
@@ -75,9 +78,9 @@ class Map(db.Model):
 
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    external_id = db.Column(db.String(128), nullable=True)
+    external_url = db.Column(db.String(128), nullable=True)
     winner_id = db.Column(UUID(as_uuid=True), nullable=True)
 
     match_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
-        'matches.id'), nullable=False)
+        'matches.id', ondelete='CASCADE'), nullable=False)
     match = db.relationship('Match', back_populates='maps')

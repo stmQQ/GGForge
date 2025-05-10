@@ -134,6 +134,8 @@ class GroupSchema(SQLAlchemyAutoSchema):
     teams = fields.List(fields.Nested('TeamSchema', only=('id', 'title')))
     rows = fields.List(fields.Nested(
         GroupRowSchema, only=('id', 'place', 'user_id', 'team_id')))
+    matches = fields.List(fields.Nested('MatchSchema', only=(
+        'id', 'participant1_id', 'participant2_id', 'maps')))
 
 
 class GroupStageSchema(SQLAlchemyAutoSchema):
@@ -142,7 +144,8 @@ class GroupStageSchema(SQLAlchemyAutoSchema):
         include_fk = True
         load_instance = True
 
-    groups = fields.List(fields.Nested(GroupSchema, only=('id', 'letter')))
+    groups = fields.List(fields.Nested(GroupSchema, only=(
+        'id', 'letter', 'participants', 'teams', 'rows', 'matches')))
 
 
 class PrizeTableRowSchema(SQLAlchemyAutoSchema):
@@ -171,7 +174,7 @@ class PlayoffStageSchema(SQLAlchemyAutoSchema):
         load_instance = True
 
     playoff_matches = fields.List(fields.Nested(
-        'PlayoffStageMatchSchema', only=('id', 'round_number', 'winner_to_match_id', 'loser_to_match_id', 'depends_on_match_1_id', 'depends_on_match_2_id')))
+        'PlayoffStageMatchSchema', only=('id', 'round_number', 'depends_on_match_1_id', 'depends_on_match_2_id', 'match')))
 
 
 class TournamentSchema(SQLAlchemyAutoSchema):
@@ -224,7 +227,7 @@ class MapSchema(SQLAlchemyAutoSchema):
     id = fields.UUID(dump_default=uuid.uuid4)
     external_id = fields.Str(allow_none=True)
     winner_id = fields.UUID(allow_none=True)
-    match_id = fields.UUID(required=True)
+    # match_id = fields.UUID(required=True)
 
     # Связь match сериализуем только как match_id, чтобы избежать рекурсии
     match = fields.Nested('MatchSchema', only=('id',), dump_only=True)

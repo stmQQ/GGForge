@@ -244,14 +244,16 @@ def create_tournament(
     creator_id: UUID,
     start_time: datetime,
     type_: str,
-    max_participants: int = 16,
+    max_participants: int = 32,
     prize_fund: float = None,
-    status: str = "open",
+    status: str = "setup",
     has_group_stage: bool = False,
     has_playoff: bool = True,
     num_groups: int = None,
     max_participants_per_group: int = None,
-    playoff_participants_count: int = 8,
+    playoff_participants_count_per_group: int = 8,
+    format_: str = 'bo1',
+    final_format_: str = 'bo3'
 ) -> Tournament:
     """
     Create a new tournament with automatic generation of group stage, playoff stage, and prize table.
@@ -269,7 +271,7 @@ def create_tournament(
         has_playoff: Whether to create a playoff stage.
         num_groups: Number of groups (required if has_group_stage=True).
         max_participants_per_group: Max participants per group (required if has_group_stage=True).
-        playoff_participants_count: Number of participants advancing to playoff (required if has_group_stage=True).
+        playoff_participants_count_per_group: Number of participants advancing to playoff (required if has_group_stage=True).
 
     Returns:
         Tournament: The created tournament object.
@@ -297,9 +299,9 @@ def create_tournament(
         raise ValueError("Invalid tournament status")
 
     if has_group_stage:
-        if not all([num_groups, max_participants_per_group, playoff_participants_count]):
+        if not all([num_groups, max_participants_per_group, playoff_participants_count_per_group]):
             raise ValueError(
-                "num_groups, max_participants_per_group, and playoff_participants_count "
+                "num_groups, max_participants_per_group, and playoff_participants_count_per_group "
                 "are required for group stage tournaments"
             )
         if num_groups < 1 or max_participants_per_group < 2:
@@ -308,8 +310,8 @@ def create_tournament(
         if max_participants < num_groups * 2:
             raise ValueError(
                 "max_participants too low for the number of groups")
-        if playoff_participants_count < 2 or playoff_participants_count > num_groups * max_participants_per_group:
-            raise ValueError("Invalid playoff_participants_count")
+        if playoff_participants_count_per_group < 2 or playoff_participants_count_per_group > num_groups * max_participants_per_group:
+            raise ValueError("Invalid playoff_participants_count_per_group")
 
     if prize_fund is not None and prize_fund < 0:
         raise ValueError("Prize fund cannot be negative")
@@ -324,7 +326,9 @@ def create_tournament(
         max_players=max_participants,
         prize_fund=str(prize_fund) if prize_fund is not None else "0",
         type=type_,
-        status=status
+        status=status,
+        match_format=format_,
+        final_format=final_format_
     )
 
     try:
@@ -353,21 +357,27 @@ def create_tournament(
                 num_groups=num_groups,
                 max_participants_per_group=max_participants_per_group,
                 participants=group_participants,
-                winners_bracket_qualified=playoff_participants_count
+                winners_bracket_qualified=playoff_participants_count_per_group
             )
             tournament.group_stage = group_stage
         # Create playoff stage if enabled
         if has_playoff:
             if has_group_stage:
-                winner_bracket_count = num_groups * group_stage.winners_bracket_qualified
+                playoff_participants_count_per_group = num_groups * \
+                    group_stage.winners_bracket_qualified
             else:
-                winner_bracket_count = max_participants
-            winner_bracket_participants = [None] * winner_bracket_count
+                playoff_participants_count_per_group = max_participants
+            winner_bracket_participants = [
+                None] * playoff_participants_count_per_group
             playoff_stage = generate_single_elimination_bracket(
                 tournament_id=tournament.id,
                 participants=winner_bracket_participants
             )
             tournament.playoff_stage = playoff_stage
+        # Schedule tournament start
+        if status == "open":
+            from app.ascheduler_tasks import schedule_tournament_start
+            schedule_tournament_start(tournament.id, start_time)
         return tournament
 
     except IntegrityError as e:
@@ -378,7 +388,7 @@ def create_tournament(
         raise e
 
 
-def create_match(tournament_id: UUID, participant1_id: UUID = None, participant2_id: UUID = None, group_id: UUID = None, playoff_match_id: UUID = None, type: str = None, format: str = "bo3"):
+def create_match(tournament_id: UUID, participant1_id: UUID = None, participant2_id: UUID = None, group_id: UUID = None, playoff_match_id: UUID = None, type: str = None, format: str = "bo1"):
     """
     Create a new match in a tournament.
 
@@ -398,6 +408,7 @@ def create_match(tournament_id: UUID, participant1_id: UUID = None, participant2
         ValueError: If tournament, group, or playoff match is not found, or invalid participants.
     """
     tournament = get_tournament(tournament_id)
+    playoff_match = None
 
     if group_id and playoff_match_id:
         raise ValueError(
@@ -447,74 +458,63 @@ def create_match(tournament_id: UUID, participant1_id: UUID = None, participant2
 
 def update_match_results(tournament_id: UUID, match_id: UUID, winner_id: UUID = None, status: str = None):
     """
-    Update the results of a match.
+    Update the results of a match, validating status and winner.
+    Handles cases with no participants or one participant.
 
     Args:
         tournament_id: The UUID of the tournament.
         match_id: The UUID of the match.
-        winner_id: The UUID of the winner (User or Team).
+        winner_id: The UUID of the winner (User or Team), or None.
         status: The new status of the match (e.g., 'completed', 'cancelled').
 
     Returns:
         Match: The updated match object.
 
     Raises:
-        ValueError: If tournament, match, or winner is not found, or match doesn't belong to the tournament.
+        ValueError: If tournament, match, winner, or status is invalid.
     """
     match = get_match(tournament_id, match_id)
+    if match.status == "completed":
+        raise ValueError("Match is already completed")
 
-    if winner_id:
-        winner = User.query.get(winner_id) or Team.query.get(winner_id)
-        if not winner:
-            raise ValueError("Winner not found")
-        if winner_id not in [match.participant1_id, match.participant2_id]:
-            raise ValueError("Winner must be one of the participants")
-        match.winner_id = winner_id
+    try:
+        # Handle no participants
+        if not match.participant1_id and not match.participant2_id:
+            if status != "cancelled":
+                status = "cancelled"
+            match.status = status
+            match.winner_id = None
+            db.session.add(match)
+            db.session.commit()
+            return match
 
-    if status:
-        if status not in ["scheduled", "ongoing", "completed", "cancelled"]:
-            raise ValueError("Invalid match status")
-        match.status = status
+        # Handle winner
+        if winner_id:
+            winner = User.query.get(winner_id) or Team.query.get(winner_id)
+            if not winner:
+                raise ValueError("Winner not found")
+            if winner_id not in [match.participant1_id, match.participant2_id]:
+                raise ValueError("Winner must be one of the participants")
+            match.winner_id = winner_id
 
-    with db.session.begin():
+        # Handle status
+        if status:
+            valid_statuses = ["scheduled", "ongoing",
+                              "completed", "cancelled", "tech_win"]
+            if status not in valid_statuses:
+                raise ValueError(
+                    f"Invalid match status. Must be one of {valid_statuses}")
+            if status == "completed" and not winner_id:
+                raise ValueError("Winner ID is required for completed status")
+            match.status = status
+
         db.session.add(match)
-    return match
+        db.session.commit()
+        return match
 
-
-def update_map_results(tournament_id: UUID, match_id: UUID, map_id: UUID, winner_id: UUID = None):
-    """
-    Update the results of a specific map in a match.
-
-    Args:
-        tournament_id: The UUID of the tournament.
-        match_id: The UUID of the match.
-        map_id: The UUID of the map.
-        winner_id: The UUID of the winner (User or Team).
-
-    Returns:
-        Map: The updated map object.
-
-    Raises:
-        ValueError: If tournament, match, map, or winner is not found, or map doesn't belong to the match.
-    """
-    match = get_match(tournament_id, match_id)
-    map_ = Map.query.get(map_id)
-    if not map_:
-        raise ValueError("Map not found")
-    if map_.match_id != match_id:
-        raise ValueError("Map does not belong to this match")
-
-    if winner_id:
-        winner = User.query.get(winner_id) or Team.query.get(winner_id)
-        if not winner:
-            raise ValueError("Winner not found")
-        if winner_id not in [match.participant1_id, match.participant2_id]:
-            raise ValueError("Winner must be one of the participants")
-        map_.winner_id = winner_id
-
-    with db.session.begin():
-        db.session.add(map_)
-    return map_
+    except IntegrityError as e:
+        db.session.rollback()
+        raise ValueError(f"Failed to update match results: {str(e)}")
 
 
 def register_for_tournament(tournament_id: UUID, participant_id: UUID, is_team: bool = False):
@@ -555,8 +555,8 @@ def register_for_tournament(tournament_id: UUID, participant_id: UUID, is_team: 
             raise ValueError("User is already registered")
         tournament.participants.append(user)
 
-    with db.session.begin():
-        db.session.add(tournament)
+    # with db.session.begin():
+    db.session.add(tournament)
     return tournament
 
 
@@ -595,14 +595,15 @@ def unregister_for_tournament(tournament_id: UUID, participant_id: UUID, is_team
             raise ValueError("User is not registered")
         tournament.participants.remove(user)
 
-    with db.session.begin():
-        db.session.add(tournament)
+    # with db.session.begin():
+    db.session.add(tournament)
     return tournament
 
 
 def start_tournament(tournament_id: UUID):
     """
-    Start a tournament, transitioning it to 'ongoing' and ensuring stages are set.
+    Start a tournament, setting it to 'ongoing' and assigning participants to groups or playoff stage.
+    Validates that matches are correctly set up and handles cases with insufficient participants.
 
     Args:
         tournament_id: The UUID of the tournament.
@@ -611,23 +612,103 @@ def start_tournament(tournament_id: UUID):
         Tournament: The updated tournament object.
 
     Raises:
-        ValueError: If tournament or conditions for starting are invalid.
+        ValueError: If tournament, participants, or match setup is invalid.
     """
     tournament = get_tournament(tournament_id)
-
     if tournament.status != "open":
         raise ValueError("Tournament is not in open status")
 
-    total_participants = len(tournament.participants) + len(tournament.teams)
+    total_participants = len(
+        tournament.participants) if tournament.type == 'solo' else len(tournament.teams)
     if total_participants < 2:
         raise ValueError("Tournament requires at least 2 participants")
 
-    tournament.status = "ongoing"
-    tournament.start_time = datetime.now(UTC)
-
-    with db.session.begin():
+    try:
+        # Set tournament status and start time
+        tournament.status = "ongoing"
+        tournament.start_time = datetime.now(UTC)
         db.session.add(tournament)
-    return tournament
+
+        # Assign participants
+        if tournament.group_stage:
+            assign_participants_to_groups(tournament_id)
+            create_group_stage_matches(
+                tournament_id, format_=tournament.match_format)
+        else:
+            assign_participants_to_playoff_stage(tournament_id)
+            # Validate match setup
+            if tournament.playoff_stage:
+                validate_match_setup(tournament_id)
+
+        db.session.commit()
+        return tournament
+
+    except Exception as e:
+        db.session.rollback()
+        raise ValueError(f"Failed to start tournament: {str(e)}")
+
+
+def validate_match_setup(tournament_id: UUID):
+    """
+    Validate playoff matches for cases where 1 or 0 participants.
+
+    Args:
+        tournament_id: The UUID of the tournament.
+
+    Raises:
+        ValueError: If tournament, or matches are invalid.
+    """
+    tournament = get_tournament(tournament_id)
+    first_round_matches = PlayoffStageMatch.query.filter_by(
+        playoff_id=tournament.playoff_stage.id,
+        round_number="1",
+        bracket="winner"
+    ).all()
+    for match in first_round_matches:
+        if not match.match.participant1_id and not match.match.participant2_id:
+            match.match.status = "cancelled"
+            db.session.add(match.match)
+        elif match.match.participant1_id and not match.match.participant2_id:
+            match.match.winner_id = match.match.participant1_id
+            match.match.status = "tech_win"
+            db.session.add(match.match)
+            update_next_match_participants(
+                tournament_id, match.match.id, match.match.winner_id)
+        elif match.match.participant2_id and not match.match.participant1_id:
+            match.match.winner_id = match.match.participant2_id
+            match.match.status = "tech_win"
+            db.session.add(match.match)
+            update_next_match_participants(
+                tournament_id, match.match.id, match.match.winner_id)
+
+
+def complete_group_stage(tournament_id: UUID):
+    """
+    Complete the group stage and assign participants to playoff stage.
+
+    Args:
+        tournament_id: The UUID of the tournament.
+
+    Raises:
+        ValueError: If tournament, group stage, or matches are invalid.
+    """
+    tournament = get_tournament(tournament_id)
+    if not tournament.group_stage:
+        raise ValueError("Tournament does not have a group stage")
+
+    group_stage = tournament.group_stage
+    for group in group_stage.groups:
+        for match in group.matches:
+            if match.status != "completed":
+                raise ValueError("Not all group stage matches are completed")
+
+    # Assign participants to playoff stage
+    assign_participants_to_playoff_stage(tournament_id)
+
+    if tournament.playoff_stage:
+        validate_match_setup(tournament_id)
+
+    db.session.commit()
 
 
 def complete_tournament(tournament_id: UUID):
@@ -648,7 +729,7 @@ def complete_tournament(tournament_id: UUID):
     if tournament.status != "ongoing":
         raise ValueError("Tournament is not ongoing")
 
-    if any(match.status != "completed" for match in tournament.matches):
+    if any(match.status not in ["completed", "tech_win", "cancelled"] for match in tournament.matches):
         raise ValueError("Not all matches are completed")
 
     if not tournament.playoff_stage:
@@ -672,54 +753,44 @@ def complete_tournament(tournament_id: UUID):
     winner_id = final_match.match.winner_id
     loser_id = final_match.match.participant1_id if final_match.match.participant2_id == winner_id else final_match.match.participant2_id
 
-    with db.session.begin():
-        # 1st place
-        if not PrizeTableRow.query.filter_by(prize_table_id=tournament.prize_table.id, place=1).first():
-            create_prizetable_row(
-                tournament_id=tournament.id,
-                place=1,
-                user_id=winner_id if User.query.get(winner_id) else None,
-                team_id=winner_id if Team.query.get(winner_id) else None,
-                prize=prize_fund * 0.5
-            )
+    # with db.session.begin():
+    # 1st place
+    first_place_row = PrizeTableRow.query.filter_by(
+        prize_table_id=tournament.prize_table.id, place=1).first()
+    first_place_row.user_id = winner_id if User.query.get(winner_id) else None
+    first_place_row.team_id = winner_id if Team.query.get(winner_id) else None
+    db.session.add(first_place_row)
 
-        # 2nd place
-        if not PrizeTableRow.query.filter_by(prize_table_id=tournament.prize_table.id, place=2).first():
-            create_prizetable_row(
-                tournament_id=tournament.id,
-                place=2,
-                user_id=loser_id if User.query.get(loser_id) else None,
-                team_id=loser_id if Team.query.get(loser_id) else None,
-                prize=prize_fund * 0.3
-            )
+    second_place_row = PrizeTableRow.query.filter_by(
+        prize_table_id=tournament.prize_table.id, place=2).first()
+    second_place_row.user_id = loser_id if User.query.get(loser_id) else None
+    second_place_row.team_id = loser_id if Team.query.get(loser_id) else None
+    db.session.add(second_place_row)
 
-        # 3rd place (optional, based on second-to-last round winner)
-        semifinal_matches = PlayoffStageMatch.query.filter_by(
-            playoff_id=tournament.playoff_stage.id,
-            bracket="winner",
-            round_number=str(int(final_match.round_number) - 1)
-        ).all()
-        semifinal_losers = []
-        for match in semifinal_matches:
-            if match.match and match.match.winner_id and match.match.participant1_id and match.match.participant2_id:
-                loser_id = match.match.participant1_id if match.match.participant2_id == match.match.winner_id else match.match.participant2_id
-                semifinal_losers.append(loser_id)
-
-        if semifinal_losers and not PrizeTableRow.query.filter_by(prize_table_id=tournament.prize_table.id, place=3).first():
-            # Pick one semifinal loser for 3rd place (simplified)
-            third_place_id = semifinal_losers[0]
-            create_prizetable_row(
-                tournament_id=tournament.id,
-                place=3,
-                user_id=third_place_id if User.query.get(
-                    third_place_id) else None,
-                team_id=third_place_id if Team.query.get(
-                    third_place_id) else None,
-                prize=prize_fund * 0.2
-            )
-
-        tournament.status = "completed"
-        db.session.add(tournament)
+    # 3rd place (optional, based on second-to-last round winner)
+    semifinal_matches = PlayoffStageMatch.query.filter_by(
+        playoff_id=tournament.playoff_stage.id,
+        bracket="winner",
+        round_number=str(int(final_match.round_number) - 1)
+    ).all()
+    semifinal_losers = []
+    for match in semifinal_matches:
+        if match.match and match.match.winner_id and match.match.participant1_id and match.match.participant2_id:
+            loser_id = match.match.participant1_id if match.match.participant2_id == match.match.winner_id else match.match.participant2_id
+            semifinal_losers.append(loser_id)
+    if semifinal_losers:
+        # Pick one semifinal loser for 3rd place (simplified)
+        third_place_id = semifinal_losers[0]
+        third_place_row = PrizeTableRow.query.filter_by(
+            prize_table_id=tournament.prize_table.id, place=3).first()
+        third_place_row.user_id = third_place_id if User.query.get(
+            third_place_id) else None,
+        third_place_row.team_id = third_place_id if Team.query.get(
+            third_place_id) else None,
+        db.session.add(third_place_row)
+    tournament.status = "completed"
+    db.session.add(tournament)
+    # db.session.commit()
 
     return tournament
 
@@ -928,14 +999,14 @@ def generate_single_elimination_bracket(tournament_id: UUID, participants: list[
             participant1_id=None,
             participant2_id=None,
             type="playoff",
-            format="bo3",
+            format='bo1' if tournament.match_format == 'bo2' else tournament.match_format,
             status="scheduled"
         )
         db.session.add(match)
         db.session.flush()
         playoff_match = PlayoffStageMatch(
             playoff_id=playoff_stage.id,
-            match_id=match.id,
+            match=match,
             round_number=str(1),
             bracket="winner"
         )
@@ -948,14 +1019,14 @@ def generate_single_elimination_bracket(tournament_id: UUID, participants: list[
             match = Match(
                 tournament_id=tournament_id,
                 type="playoff",
-                format="bo3" if round_num < rounds else "bo5",
+                format='bo1' if tournament.match_format == 'bo2' else tournament.match_format if round_num < rounds else tournament.final_format,
                 status="scheduled"
             )
             db.session.add(match)
             db.session.flush()
             playoff_match = PlayoffStageMatch(
                 playoff_id=playoff_stage.id,
-                match_id=match.id,
+                match=match,
                 round_number=str(round_num),
                 bracket="winner"
             )
@@ -979,7 +1050,8 @@ def generate_single_elimination_bracket(tournament_id: UUID, participants: list[
 
 def complete_map(tournament_id: UUID, match_id: UUID, map_id: UUID, winner_id: UUID):
     """
-    Complete a map by setting its winner.
+    Complete a map by setting its winner, updating match scores, and completing the match if enough wins.
+    Handles cases with one participant.
 
     Args:
         tournament_id: The UUID of the tournament.
@@ -993,52 +1065,242 @@ def complete_map(tournament_id: UUID, match_id: UUID, map_id: UUID, winner_id: U
     Raises:
         ValueError: If tournament, match, map, or winner is invalid.
     """
-    map_ = update_map_results(tournament_id, match_id, map_id, winner_id)
-
     match = get_match(tournament_id, match_id)
-    if match.format.startswith("bo"):
-        num_maps = int(match.format[2:])
-        map_wins = {}
-        for map_ in match.maps:
-            if map_.winner_id:
-                map_wins[map_.winner_id] = map_wins.get(map_.winner_id, 0) + 1
-        for participant_id, wins in map_wins.items():
-            if wins > num_maps // 2:
-                with db.session.begin():
-                    match.winner_id = participant_id
-                    match.status = "completed"
-                    db.session.add(match)
-                update_next_match_participants(
-                    tournament_id, match_id, participant_id)
-                break
+    if match.status not in ["ongoing", "scheduled"]:
+        raise ValueError(f"Match must be in 'ongoing' or 'scheduled' status")
 
-    return map_
+    map_ = Map.query.get(map_id)
+    if not map_ or map_.match_id != match_id:
+        raise ValueError("Map not found or does not belong to the match")
+
+    if map_.winner_id:
+        raise ValueError("Map already completed")
+
+    # Handle case with one participant
+    if (match.participant1_id and not match.participant2_id) or (match.participant2_id and not match.participant1_id):
+        winner_id = match.participant1_id or match.participant2_id
+    else:
+        # Validate winner for matches with two participants
+        winner = User.query.get(winner_id) or Team.query.get(winner_id)
+        if not winner:
+            raise ValueError("Winner not found")
+        if winner_id not in [match.participant1_id, match.participant2_id]:
+            raise ValueError("Winner must be one of the match participants")
+
+    try:
+        # Update map
+        map_.winner_id = winner_id
+
+        # Update match scores
+        if winner_id == match.participant1_id:
+            match.participant1_score += 1
+        elif winner_id == match.participant2_id:
+            match.participant2_score += 1
+
+        db.session.add(map_)
+        db.session.add(match)
+
+        # Check if match should be completed
+        if match.format.startswith("bo"):
+            num_maps = int(match.format[2:])
+            if match.participant1_score > num_maps // 2:
+                complete_match(tournament_id, match_id, match.participant1_id)
+            elif match.participant2_score > num_maps // 2:
+                complete_match(tournament_id, match_id, match.participant2_id)
+            elif match.participant1_id and not match.participant2_id:
+                complete_match(tournament_id, match_id, match.participant1_id)
+            elif match.participant2_id and not match.participant1_id:
+                complete_match(tournament_id, match_id, match.participant2_id)
+        db.session.commit()
+        return map_
+
+    except IntegrityError as e:
+        db.session.rollback()
+        raise ValueError("Failed to update map or match due to database error")
 
 
-def complete_match(tournament_id: UUID, match_id: UUID, winner_id: UUID):
+def sort_group_standings(group_id: UUID):
+    """
+    Sort participants in a group by recalculating points (2 for win, 1 for draw, 0 for loss)
+    and updating their place in GroupRow.
+
+    Args:
+        group_id: The UUID of the group.
+
+    Raises:
+        ValueError: If group is not found or GroupRow data is invalid.
+    """
+    group = Group.query.get(group_id)
+    if not group:
+        raise ValueError("Group not found")
+
+    try:
+        # Get all GroupRow entries for the group
+        group_rows = GroupRow.query.filter_by(group_id=group_id).all()
+        if not group_rows:
+            raise ValueError(f"No participants found in group {group_id}")
+
+        # Calculate points and sort (2 points for win, 1 for draw, 0 for loss)
+        standings = [
+            {
+                "row": row,
+                "points": (row.wins * 2) + (row.draws * 1),
+                "wins": row.wins
+            }
+            for row in group_rows
+        ]
+        standings.sort(key=lambda x: (x["points"], x["wins"]), reverse=True)
+
+        # Assign places (1-based indexing)
+        for index, standing in enumerate(standings, 1):
+            row = standing["row"]
+            row.place = index
+            db.session.add(row)
+        db.session.commit()
+
+    except Exception as e:
+        db.session.rollback()
+        raise ValueError(f"Failed to sort group standings: {str(e)}")
+
+
+def complete_match(tournament_id: UUID, match_id: UUID, winner_id: UUID = None):
     """
     Complete a match by setting its winner and updating next matches.
+    For group stage matches, update GroupRow statistics (wins, loses, draws) and sort standings.
+    For bo2 group stage matches, handle draws if no winner is specified.
+    If the match is the final match, complete the tournament.
+    Group stage matches must have both participants.
 
     Args:
         tournament_id: The UUID of the tournament.
         match_id: The UUID of the match.
-        winner_id: The UUID of the winner (User or Team).
+        winner_id: The UUID of the winner (User or Team), or None for a draw in bo2.
 
     Returns:
         Match: The updated match object.
 
     Raises:
-        ValueError: If tournament, match, or winner is invalid.
+        ValueError: If tournament, match, winner, or participants are invalid.
     """
-    match = update_match_results(
-        tournament_id, match_id, winner_id, "completed")
-    update_next_match_participants(tournament_id, match_id, winner_id)
+    match = get_match(tournament_id, match_id)
+
+    if match.status == "completed":
+        raise ValueError("Match is already completed")
+
+    # Handle case with no participants (only for playoff matches)
+    if not match.participant1_id and not match.participant2_id:
+        if match.group_id:
+            raise ValueError("Group stage matches must have both participants")
+        match.status = "cancelled"
+        db.session.add(match)
+        db.session.commit()
+        return match
+
+    # Handle case with one participant (only for playoff matches)
+    if (match.participant1_id and not match.participant2_id) or (match.participant2_id and not match.participant1_id):
+        if match.group_id:
+            raise ValueError("Group stage matches must have both participants")
+        winner_id = match.participant1_id or match.participant2_id
+        match.winner_id = winner_id
+        match.status = "tech_win"
+    else:
+        # Normal case with two participants
+        if match.format == "bo2" and winner_id is None:
+            # Handle draw for bo2 group stage matches
+            match.status = "completed"
+            match.winner_id = None
+        else:
+            if not winner_id:
+                raise ValueError(
+                    "Winner ID must be provided for matches with two participants, except for bo2 draws")
+            match = update_match_results(
+                tournament_id, match_id, winner_id, "completed")
+
+    # Update GroupRow for group stage matches
+    if match.group_id:
+        try:
+            # Ensure both participants exist
+            if not match.participant1_id or not match.participant2_id:
+                raise ValueError(
+                    "Group stage matches must have both participants")
+
+            # Find GroupRow entries for both participants
+            group_row1 = GroupRow.query.filter_by(
+                group_id=match.group_id,
+                user_id=match.participant1_id if match.tournament.type == "solo" else None,
+                team_id=match.participant1_id if match.tournament.type == "team" else None
+            ).first()
+            group_row2 = GroupRow.query.filter_by(
+                group_id=match.group_id,
+                user_id=match.participant2_id if match.tournament.type == "solo" else None,
+                team_id=match.participant2_id if match.tournament.type == "team" else None
+            ).first()
+
+            # Validate GroupRow existence
+            if not group_row1:
+                raise ValueError(
+                    f"GroupRow not found for participant {match.participant1_id} in group {match.group_id}")
+            if not group_row2:
+                raise ValueError(
+                    f"GroupRow not found for participant {match.participant2_id} in group {match.group_id}")
+
+            # Update statistics based on match result
+            if match.format == "bo2" and winner_id is None and match.status == "completed":
+                # Handle draw for bo2
+                group_row1.draws += 1
+                group_row2.draws += 1
+                db.session.add(group_row1)
+                db.session.add(group_row2)
+            elif match.status == "completed" and winner_id:
+                # Handle win/loss
+                if winner_id == match.participant1_id:
+                    group_row1.wins += 1
+                    group_row2.loses += 1
+                elif winner_id == match.participant2_id:
+                    group_row1.loses += 1
+                    group_row2.wins += 1
+                db.session.add(group_row1)
+                db.session.add(group_row2)
+            # Sort group standings
+            sort_group_standings(match.group_id)
+
+        except Exception as e:
+            db.session.rollback()
+            raise ValueError(
+                f"Failed to update GroupRow statistics or sort standings: {str(e)}")
+    matches = Match.query.filter_by(group_id=match.group_id)
+
+    if all(m.status == 'completed' for m in matches):
+        complete_group_stage(tournament_id)
+
+    # Update next match participants for playoff matches
+    if match.playoff_match and winner_id:
+        update_next_match_participants(tournament_id, match_id, winner_id)
+
+    # Check if this is the final match
+    if match.playoff_match:
+        final_match = PlayoffStageMatch.query.filter_by(
+            playoff_id=match.playoff_match.playoff_id,
+            bracket="winner"
+        ).order_by(PlayoffStageMatch.round_number.desc()).first()
+        if final_match and final_match.id == match.playoff_match.id:
+            tournament = get_tournament(tournament_id)
+            if all(m.status in ["completed", "tech_win", "cancelled"] for m in tournament.matches):
+                complete_tournament(tournament_id)
+
+    try:
+        db.session.commit()
+    except IntegrityError as e:
+        db.session.rollback()
+        raise ValueError("Failed to complete match due to database error")
+
     return match
 
 
 def update_next_match_participants(tournament_id: UUID, match_id: UUID, winner_id: UUID):
     """
     Update the participants of the next match based on the current match's winner.
+    Handles cases with one or no participants in the next match.
 
     Args:
         tournament_id: The UUID of the tournament.
@@ -1052,12 +1314,10 @@ def update_next_match_participants(tournament_id: UUID, match_id: UUID, winner_i
         ValueError: If tournament, match, or next match is invalid.
     """
     match = get_match(tournament_id, match_id)
-
     if not match.playoff_match:
         return
 
     playoff_match = match.playoff_match
-
     next_winner_match = PlayoffStageMatch.query.filter_by(
         playoff_id=playoff_match.playoff_id,
         depends_on_match_1_id=playoff_match.id
@@ -1066,19 +1326,42 @@ def update_next_match_participants(tournament_id: UUID, match_id: UUID, winner_i
         depends_on_match_2_id=playoff_match.id
     ).first()
 
+    if not next_winner_match:
+        return
+
     try:
-        with db.session.begin():
-            if next_winner_match and next_winner_match.match:
-                next_match = next_winner_match.match
-                if not next_match.participant1_id:
-                    next_match.participant1_id = winner_id
-                elif not next_match.participant2_id:
-                    next_match.participant2_id = winner_id
-                else:
-                    raise ValueError(
-                        "Next winner match already has both participants")
-                db.session.add(next_match)
-    except IntegrityError:
+        if next_winner_match.match:
+            next_match = next_winner_match.match
+            if not next_match.participant1_id:
+                next_match.participant1_id = winner_id
+            elif not next_match.participant2_id:
+                next_match.participant2_id = winner_id
+            else:
+                raise ValueError(
+                    "Next winner match already has both participants")
+
+            db.session.add(next_match)
+
+            # Check if next match can be auto-completed
+            parallel_match = next_winner_match.depends_on_match_1 if next_winner_match.depends_on_match_2_id == playoff_match.id else next_winner_match.depends_on_match_2
+            if parallel_match and parallel_match.match.status in ["cancelled", "tech_win"]:
+                if next_match.participant1_id and not next_match.participant2_id:
+                    next_match.winner_id = next_match.participant1_id
+                    next_match.status = "tech_win"
+                    db.session.add(next_match)
+                    update_next_match_participants(
+                        tournament_id, next_match.id, next_match.winner_id)
+                elif next_match.participant2_id and not next_match.participant1_id:
+                    next_match.winner_id = next_match.participant2_id
+                    next_match.status = "tech_win"
+                    db.session.add(next_match)
+                    update_next_match_participants(
+                        tournament_id, next_match.id, next_match.winner_id)
+
+        db.session.commit()
+
+    except IntegrityError as e:
+        db.session.rollback()
         raise ValueError(
             "Failed to update next match participants due to database constraints")
 
@@ -1164,3 +1447,441 @@ def create_prizetable_row(tournament_id: UUID, place: int, user_id: UUID = None,
 
     db.session.add(row)
     return row
+
+
+def assign_participants_to_groups(tournament_id: UUID):
+    """
+    Assign participants to groups in the group stage of a tournament, distributing them evenly.
+
+    Args:
+        tournament_id: The UUID of the tournament.
+
+    Raises:
+        ValueError: If tournament, group stage, or groups are not found, or insufficient participants.
+    """
+    tournament = get_tournament(tournament_id)
+
+    if not tournament.group_stage:
+        raise ValueError("Tournament does not have a group stage")
+
+    group_stage = tournament.group_stage
+    if not group_stage:
+        raise ValueError("Group stage not found")
+
+    groups = group_stage.groups
+    if not groups:
+        raise ValueError("No groups found in group stage")
+
+    # Collect participants (users or teams based on tournament type)
+    participants = tournament.teams if tournament.type == "team" else tournament.participants
+    if len(participants) < 2:
+        raise ValueError("Tournament requires at least 2 participants")
+
+    # Calculate total max participants across all groups
+    total_max_participants = sum(group.max_participants for group in groups)
+    if len(participants) > total_max_participants:
+        raise ValueError("Too many participants for available group slots")
+
+    # Shuffle participants for random assignment
+    participants = list(participants)
+    random.shuffle(participants)
+
+    try:
+        # Clear existing GroupRow entries for all groups
+        for group in groups:
+            GroupRow.query.filter_by(group_id=group.id).delete()
+            # Clear group participants/teams to avoid duplicates
+            if tournament.type == 'solo':
+                group.participants.clear()
+            else:
+                group.teams.clear()
+
+        # Calculate target number of participants per group
+        num_groups = len(groups)
+        base_participants_per_group = len(participants) // num_groups
+        extra_participants = len(participants) % num_groups
+
+        # Distribute participants evenly using round-robin
+        participant_index = 0
+        for i in range(len(participants)):
+            # Assign to group i % num_groups
+            group_index = i % num_groups
+            group = groups[group_index]
+
+            # Check if group can accept more participants
+            current_participants = len(
+                group.participants) if tournament.type == 'solo' else len(group.teams)
+            if current_participants >= group.max_participants:
+                continue
+
+            if participant_index >= len(participants):
+                break
+
+            participant = participants[participant_index]
+
+            # Add participant to group
+            if tournament.type == 'solo':
+                group.participants.append(participant)
+            else:
+                group.teams.append(participant)
+
+            # Create GroupRow entry
+            create_group_row(
+                group_id=group.id,
+                participant_id=participant.id,
+                is_team=tournament.type == "team"
+            )
+            participant_index += 1
+
+        db.session.commit()
+
+    except Exception as e:
+        db.session.rollback()
+        raise ValueError(f"Failed to assign participants to groups: {str(e)}")
+
+
+def assign_participants_to_playoff_stage(tournament_id: UUID):
+    """
+    Assign participants to the playoff stage, distributing each to a separate match in the first round.
+    Handles cases with one or no participants per match.
+
+    Args:
+        tournament_id: The UUID of the tournament.
+
+    Raises:
+        ValueError: If tournament, playoff stage, or insufficient participants.
+    """
+    tournament = get_tournament(tournament_id)
+    playoff_stage = tournament.playoff_stage
+    if not playoff_stage:
+        raise ValueError("Playoff stage not found")
+
+    participants = []
+    if tournament.group_stage:
+        group_stage = tournament.group_stage
+        if not group_stage:
+            raise ValueError("Group stage not found")
+        for group in group_stage.groups:
+            group_rows = GroupRow.query.filter_by(group_id=group.id).order_by(
+                GroupRow.place.asc(), GroupRow.wins.desc()
+            ).limit(group_stage.winners_bracket_qualified).all()
+            participants.extend(
+                row.team if tournament.type == "team" else row.user
+                for row in group_rows
+            )
+    else:
+        participants = tournament.teams if tournament.type == "team" else tournament.participants
+
+    if len(participants) < 2:
+        raise ValueError("Insufficient participants for playoff stage")
+
+    # Validate playoff structure
+    num_slots = 2 ** math.ceil(math.log2(len(participants)))
+    if len(participants) > num_slots:
+        raise ValueError("Too many participants for playoff structure")
+
+    try:
+        # Shuffle participants for random seeding
+        participants = list(participants)
+        random.shuffle(participants)
+
+        # Get first round matches
+        first_round_matches = PlayoffStageMatch.query.filter_by(
+            playoff_id=playoff_stage.id,
+            round_number="1",
+            bracket="winner"
+        ).order_by(PlayoffStageMatch.id).all()
+
+        # Distribute participants
+        participant_index = 0
+        for match in first_round_matches:
+            match.match.participant1_id = participants[participant_index].id if participant_index < len(
+                participants) else None
+            participant_index += 1
+            match.match.participant2_id = participants[participant_index].id if participant_index < len(
+                participants) else None
+            participant_index += 1
+
+            db.session.add(match.match)
+
+            # Handle matches with one or no participants
+            if not match.match.participant1_id and not match.match.participant2_id:
+                match.match.status = "cancelled"
+                db.session.add(match.match)
+            elif match.match.participant1_id and not match.match.participant2_id:
+                match.match.winner_id = match.match.participant1_id
+                match.match.status = "tech_win"
+                db.session.add(match.match)
+                update_next_match_participants(
+                    tournament_id, match.match.id, match.match.winner_id)
+            elif match.match.participant2_id and not match.match.participant1_id:
+                match.match.winner_id = match.match.participant2_id
+                match.match.status = "tech_win"
+                db.session.add(match.match)
+                update_next_match_participants(
+                    tournament_id, match.match.id, match.match.winner_id)
+
+        db.session.commit()
+
+    except Exception as e:
+        db.session.rollback()
+        raise ValueError(f"Failed to assign participants: {str(e)}")
+
+
+def assign_users_to_prizetable(tournament_id: UUID):
+    """
+    Assign participants to the prize table based on playoff results.
+
+    Args:
+        tournament_id: The UUID of the tournament.
+
+    Raises:
+        ValueError: If tournament, playoff stage, or final match is invalid.
+    """
+    tournament = get_tournament(tournament_id)
+    if not tournament.playoff_stage:
+        raise ValueError("Tournament requires a playoff stage")
+
+    if not tournament.prize_table:
+        raise ValueError("Prize table not set")
+
+    # Find the final match (highest round number, bracket 'winner')
+    final_match = PlayoffStageMatch.query.filter_by(
+        playoff_id=tournament.playoff_stage.id,
+        bracket="winner"
+    ).order_by(PlayoffStageMatch.round_number.desc()).first()
+
+    if not final_match or not final_match.match or not final_match.match.winner_id:
+        raise ValueError("Final match is not completed or has no winner")
+
+    prize_fund = float(tournament.prize_fund) if tournament.prize_fund else 0
+    winner_id = final_match.match.winner_id
+    loser_id = final_match.match.participant1_id if final_match.match.participant2_id == winner_id else final_match.match.participant2_id
+
+    # Clear existing prize table rows to avoid duplicates
+    PrizeTableRow.query.filter_by(
+        prize_table_id=tournament.prize_table.id).delete()
+
+    # 1st place
+    create_prizetable_row(
+        tournament_id=tournament.id,
+        place=1,
+        user_id=winner_id if User.query.get(winner_id) else None,
+        team_id=winner_id if Team.query.get(winner_id) else None,
+        prize=prize_fund * 0.5
+    )
+
+    # 2nd place
+    create_prizetable_row(
+        tournament_id=tournament.id,
+        place=2,
+        user_id=loser_id if User.query.get(loser_id) else None,
+        team_id=loser_id if Team.query.get(loser_id) else None,
+        prize=prize_fund * 0.3
+    )
+
+    # 3rd place (from semifinal losers)
+    semifinal_matches = PlayoffStageMatch.query.filter_by(
+        playoff_id=tournament.playoff_stage.id,
+        bracket="winner",
+        round_number=str(int(final_match.round_number) - 1)
+    ).all()
+    semifinal_losers = []
+    for match in semifinal_matches:
+        if match.match and match.match.winner_id and match.match.participant1_id and match.match.participant2_id:
+            loser_id = match.match.participant1_id if match.match.participant2_id == match.match.winner_id else match.match.participant2_id
+            semifinal_losers.append(loser_id)
+
+    if semifinal_losers:
+        third_place_id = semifinal_losers[0]  # Simplified: take first loser
+        create_prizetable_row(
+            tournament_id=tournament.id,
+            place=3,
+            user_id=third_place_id if User.query.get(third_place_id) else None,
+            team_id=third_place_id if Team.query.get(third_place_id) else None,
+            prize=prize_fund * 0.2
+        )
+
+    db.session.commit()
+
+
+def reset_tournament(tournament_id: UUID):
+    """
+    Reset a tournament by deleting all related stages, matches, and prize table,
+    and setting status back to 'open'. Participants and teams are preserved.
+
+    Args:
+        tournament_id: The UUID of the tournament.
+
+    Returns:
+        Tournament: The reset tournament object.
+
+    Raises:
+        ValueError: If tournament is not found or already in 'open' status.
+    """
+    tournament = get_tournament(tournament_id)
+
+    if tournament.status == "open":
+        raise ValueError("Tournament is already in open status")
+
+    try:
+        # Delete GroupStage (Groups and GroupRows are deleted via CASCADE)
+        GroupStage.query.filter_by(tournament_id=tournament_id).delete()
+
+        # Delete PlayoffStage (PlayoffStageMatches and Matches are deleted via CASCADE)
+        PlayoffStage.query.filter_by(tournament_id=tournament_id).delete()
+
+        # Delete Matches (Maps are deleted via CASCADE)
+        Match.query.filter_by(tournament_id=tournament_id).delete()
+
+        # Delete PrizeTable (PrizeTableRows are deleted via CASCADE)
+        PrizeTable.query.filter_by(tournament_id=tournament_id).delete()
+
+        # Reset tournament status and clear relationships
+        tournament.status = "open"
+        tournament.start_time = "2025-06-01 15:00:00"
+        tournament.group_stage = None
+        tournament.playoff_stage = None
+        tournament.prize_table = None
+        tournament.matches = []
+
+        db.session.add(tournament)
+        db.session.commit()
+
+        # Remove scheduled task
+        try:
+            from app.ascheduler_tasks import scheduler
+            from apscheduler.jobstores.base import JobLookupError
+            scheduler.remove_job(f"tournament_start_{tournament_id}")
+        except JobLookupError:
+            pass
+
+        return tournament
+
+    except Exception as e:
+        db.session.rollback()
+        raise ValueError(f"Failed to reset tournament: {str(e)}")
+
+
+def start_match(tournament_id: UUID, match_id: UUID):
+    """
+    Start a match by setting its status to 'ongoing' and creating maps based on the match format.
+
+    Args:
+        tournament_id: The UUID of the tournament.
+        match_id: The UUID of the match.
+
+    Returns:
+        Match: The updated match object with status 'ongoing' and created maps.
+
+    Raises:
+        ValueError: If tournament, match, or participants are invalid, or match is not in 'scheduled' status.
+    """
+    # Get match and validate
+    match = get_match(tournament_id, match_id)
+
+    if match.status != "scheduled":
+        raise ValueError("Match must be in 'scheduled' status to start")
+
+    if not match.participant1_id or not match.participant2_id:
+        raise ValueError("Match cannot start without both participants")
+
+    # Set match status to ongoing
+    match.status = "ongoing"
+
+    # Initialize scores if not set
+    match.participant1_score = match.participant1_score or 0
+    match.participant2_score = match.participant2_score or 0
+
+    # Create maps based on format
+    if not match.format.startswith("bo"):
+        raise ValueError("Invalid match format. Expected 'boX' (e.g., 'bo3')")
+
+    try:
+        num_maps = int(match.format[2:])  # e.g., 'bo3' -> 3
+    except ValueError:
+        raise ValueError(
+            "Invalid match format. Expected 'boX' where X is a number")
+
+    # Check if maps already exist
+    if match.maps:
+        raise ValueError("Maps already created for this match")
+
+    # Create maps
+    for i in range(num_maps):
+        map_ = Map(
+            match_id=match_id,
+            # Optional: external_id=str(uuid.uuid4()),  # If external_id is needed
+            # Optional: order=i+1  # If Map model has order
+        )
+        db.session.add(map_)
+
+    try:
+        db.session.add(match)
+        db.session.commit()
+    except IntegrityError as e:
+        db.session.rollback()
+        raise ValueError("Failed to start match due to database error")
+
+    return match
+
+
+def create_group_stage_matches(tournament_id: UUID, format_: str):
+    """
+    Create matches for the group stage of a tournament, generating round-robin matches for each group.
+
+    Args:
+        tournament_id: The UUID of the tournament.
+
+    Returns:
+        list: List of created Match objects.
+
+    Raises:
+        ValueError: If tournament, group stage, groups, or participants are invalid.
+    """
+    tournament = get_tournament(tournament_id)
+
+    if not tournament.group_stage:
+        raise ValueError("Tournament does not have a group stage")
+
+    group_stage = tournament.group_stage
+    if not group_stage:
+        raise ValueError("Group stage not found")
+
+    groups = group_stage.groups
+    if not groups:
+        raise ValueError("No groups found in group stage")
+
+    created_matches = []
+
+    try:
+        print(format_)
+        for group in groups:
+            # Get participants in the group
+            participants = group.teams if tournament.type == "team" else group.participants
+            if len(participants) < 2:
+                continue
+
+            # Generate round-robin matches: each participant vs. each other participant
+            for i in range(len(participants)):
+                for j in range(i + 1, len(participants)):
+                    participant1 = participants[i]
+                    participant2 = participants[j]
+
+                    # Create match
+                    match = create_match(
+                        tournament_id=tournament_id,
+                        participant1_id=participant1.id,
+                        participant2_id=participant2.id,
+                        group_id=group.id,
+                        type="group",
+                        format=format_
+                    )
+                    created_matches.append(match)
+
+        db.session.commit()
+        return created_matches
+
+    except Exception as e:
+        db.session.rollback()
+        raise ValueError(f"Failed to create group stage matches: {str(e)}")
