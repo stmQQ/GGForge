@@ -5,6 +5,7 @@ from .tournament_routes import tournament_bp
 from .game_routes import game_bp
 # from .admin_routes import admin_bp
 # from .common_routes import common_bp
+from .team_routes import team_bp
 
 
 def register_routes(app):
@@ -15,3 +16,4 @@ def register_routes(app):
     app.register_blueprint(game_bp)
     # app.register_blueprint(admin_bp)
     # app.register_blueprint(common_bp)
+    app.register_blueprint(team_bp)

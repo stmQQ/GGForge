@@ -200,9 +200,9 @@ class TeamSchema(SQLAlchemyAutoSchema):
         include_fk = True
         load_instance = True
 
-    leader = fields.Nested('UserSchema', only=('id', 'username'))
+    leader = fields.Nested('UserSchema', only=('id', 'name'))
 
-    players = fields.List(fields.Nested('UserSchema', only=('id', 'username')))
+    players = fields.List(fields.Nested('UserSchema', only=('id', 'name')))
     participated_tournaments = fields.List(
         fields.Nested('TournamentSchema', only=('id', 'title')))
     groups = fields.List(fields.Nested('GroupSchema', only=('id', 'letter')))
