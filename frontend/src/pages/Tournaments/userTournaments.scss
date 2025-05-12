@@ -1,0 +1,18 @@
+.user-tournaments {
+  &__filters {
+    display: flex;
+    gap: 1%;
+    margin-bottom: clamp(20px, 8vw, 35px);
+  }
+
+  &__filter {
+    select {
+      background: #2f2d2d;
+      color: white;
+      padding: 0.5rem;
+      font-size: 0.9rem;
+      border-radius: 10px;
+      border: 1.5px solid white;
+    }
+  }
+}

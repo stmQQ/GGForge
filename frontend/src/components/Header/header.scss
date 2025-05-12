@@ -1,0 +1,95 @@
+.header {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  width: 100%;
+  margin-left: 0;
+  background-color: #0e0e10;
+  top: 0;
+  z-index: 2;
+  height: 3.5vw;
+  min-height: 40px;
+  position: fixed;
+  padding: 0.3% 1%;
+
+  @media (max-width: 768px) {
+    justify-content: space-between;
+  }
+
+  &__item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 100%;
+    aspect-ratio: 1.5;
+  }
+
+  &__button {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    aspect-ratio: 1.5;
+    background: none;
+    border: none;
+    cursor: pointer;
+    &:hover .header__icon {
+      fill: #ff4e53;
+    }
+    &.header__burger {
+      display: none;
+      @media (max-width: 768px) {
+        display: flex;
+      }
+    }
+  }
+  &__icon {
+    height: 60%;
+    width: auto;
+    fill: white;
+  }
+}
+
+.dropdown {
+  position: absolute;
+  top: 100%;
+  right: 1vw;
+  margin-top: 2vh;
+  background-color: #202020;
+  padding: 0.5rem 0;
+  border-radius: 8px;
+  width: 8vw;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+
+  &__profile {
+    width: 130px;
+  }
+  &__item {
+    padding: 0.6rem 1rem;
+    cursor: pointer;
+    font-size: clamp(10px, 2vw, 14px);
+    color: white;
+    font-family: roboto-r;
+
+    &:hover {
+      background-color: #2a2a2c;
+    }
+  }
+
+  &__divider {
+    height: 1px;
+    width: 75%;
+    margin: 0.3rem auto;
+    background-color: #ffffff;
+  }
+}
+
+.header__form {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 15px;
+}

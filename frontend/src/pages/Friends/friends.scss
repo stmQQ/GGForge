@@ -1,0 +1,53 @@
+// @import url("../../fonts.scss");
+
+.friends {
+  &__user-row {
+    display: flex;
+    align-items: center;
+    margin: 8px 0;
+    justify-content: space-between;
+    font-family: roboto-r;
+  }
+  &__user-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  &__avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+  &__link {
+    color: inherit; // цвет как у обычного текста
+    text-decoration: none; // убираем подчеркивание
+    font-size: 18px;
+  }
+
+  &__nickname {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  &__button {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    font-size: 20px;
+    border: none;
+    cursor: pointer;
+
+    &.add {
+      background-color: #ff4e53;
+      color: white;
+    }
+    &.sent {
+      background-color: gray;
+      color: white;
+      cursor: not-allowed;
+    }
+  }
+}

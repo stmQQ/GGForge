@@ -1,0 +1,22 @@
+.footer {
+  display: flex;
+  flex-direction: column;
+  text-align: center;
+  font-family: roboto-b;
+  row-gap: 2rem;
+  margin-bottom: clamp(60px, 9vw, 110px);
+
+  &__message {
+    font-size: clamp(10px, 2vw, 20px);
+  }
+
+  &__link {
+    color: #ffffff;
+    cursor: pointer;
+    text-decoration: underline !important ;
+  }
+
+  &__authors {
+    font-size: clamp(8px, 2vw, 14px);
+  }
+}

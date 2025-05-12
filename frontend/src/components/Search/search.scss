@@ -1,0 +1,64 @@
+@import url("../../fonts.scss");
+
+.search {
+  margin-bottom: 20px;
+  position: relative;
+
+
+  &__input {
+    width: 100%;
+    height: 2vw;
+    align-items: center;
+    min-height: 36px;
+    padding-left: 10px;
+    border: 2px solid white;
+    border-radius: 10px;
+    background: #141414;
+    color: white;
+    font-size: 16px;
+    font-family: roboto-r;
+
+    &::-webkit-search-cancel-button {
+      display: none;
+    }
+  }
+
+  &__button {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    right: 0.5%;
+    cursor: pointer;
+    height: 100%;
+    background: none;
+    border: none;
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  &__svg {
+    fill: white;
+    height: 80%;
+    align-items: center;
+  }
+  &::placeholder {
+    color: white;
+    opacity: 0.7;
+  }
+}
+
+.inverse {
+  background: white;
+  color: #141414;
+  &::placeholder {
+    color: rgb(0, 0, 0);
+    opacity: 0.7;
+    font-size: 16px;
+    font-family: roboto-r;
+  }
+  &.search__svg {
+    fill: black;
+    background-color: transparent;
+  }
+}

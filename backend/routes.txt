@@ -1,0 +1,755 @@
+# __init__.py
+from .auth_routes import auth_bp
+from .user_routes import user_bp
+# from .match_routes import match_bp
+from .tournament_routes import tournament_bp
+# from .admin_routes import admin_bp
+# from .common_routes import common_bp
+
+
+def register_routes(app):
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(user_bp)
+    # app.register_blueprint(match_bp)
+    app.register_blueprint(tournament_bp)
+    # app.register_blueprint(admin_bp)
+    # app.register_blueprint(common_bp)
+
+# end of __init__.py
+
+# admin_routes.py
+# from flask import Blueprint
+# from app.services.
+
+
+# admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
+
+# @admin_bp.route()
+
+
+
+# end of admin_routes.py
+
+# auth_routes.py
+from flask import Blueprint, request, jsonify, current_app
+from werkzeug.security import check_password_hash
+from werkzeug.utils import secure_filename
+from sqlalchemy.exc import IntegrityError
+from flask_jwt_extended import (
+    create_access_token, create_refresh_token, jwt_required,
+    get_jwt_identity, get_jwt
+)
+
+from app.extensions import db, jwt
+from app.models import User, TokenBlocklist
+from app.services.user_service import create_user, update_user, save_avatar
+
+from datetime import timedelta, datetime, UTC
+
+auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
+
+
+@auth_bp.route('/register', methods=['POST'])
+def register():
+    name = request.form.get('name')
+    email = request.form.get('email')
+    password = request.form.get('password')
+    avatar_file = request.files.get('avatar')
+
+    if not name or not email or not password:
+        return jsonify({'msg': 'Заполните все поля'}), 400
+
+    avatar_url = save_avatar(
+        avatar_file) if avatar_file else "/static/avatars/default.png"
+
+    try:
+        user = create_user(name=name, email=email,
+                           password=password, avatar=avatar_url)
+        # После создания пользователя переносим аватар в его папку
+        if avatar_file:
+            new_avatar_url = save_avatar(avatar_file, user_id=user.id)
+            user.avatar = new_avatar_url
+            db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({'msg': 'Пользователь с таким именем или email уже существует'}), 409
+
+    access_token = create_access_token(identity=str(
+        user.id), expires_delta=timedelta(minutes=30))
+    refresh_token = create_refresh_token(identity=str(user.id))
+
+    return jsonify({
+        'access_token': access_token,
+        'refresh_token': refresh_token,
+        'user': {
+            'id': str(user.id),
+            'name': user.name,
+            'email': user.email,
+            'avatar': user.avatar
+        }
+    }), 201
+
+
+@auth_bp.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    email = data.get('email')
+    password = data.get('password')
+
+    if not email or not password:
+        return jsonify({'msg': 'Введите email и пароль'}), 400
+
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        return jsonify({'msg': 'Пользователь не найден'}), 404
+
+    if not check_password_hash(user.password_hash, password):
+        return jsonify({'msg': 'Неверный пароль'}), 401
+
+    if user.is_banned and (user.ban_until is None or user.ban_until > datetime.now(UTC)):
+        return jsonify({'msg': 'Аккаунт заблокирован'}), 403
+
+    access_token = create_access_token(identity=str(
+        user.id), expires_delta=timedelta(minutes=30))
+    refresh_token = create_refresh_token(identity=str(user.id))
+
+    return jsonify({
+        'access_token': access_token,
+        'refresh_token': refresh_token,
+        'user': {
+            'id': str(user.id),
+            'name': user.name,
+            'email': user.email,
+            'avatar': user.avatar
+        }
+    }), 200
+
+
+@auth_bp.route('/refresh', methods=['POST'])
+@jwt_required(refresh=True)
+def refresh():
+    user_id = get_jwt_identity()
+    # можно доработать update_user
+    user = update_user(user_id, last_online=datetime.now(UTC))
+    if not user:
+        return jsonify({'msg': 'Пользователь не найден'}), 404
+
+    new_access_token = create_access_token(identity=str(
+        user_id), expires_delta=timedelta(minutes=30))
+
+    return jsonify({
+        'access_token': new_access_token,
+        'user': {
+            'id': str(user.id),
+            'name': user.name,
+            'email': user.email,
+            'avatar': user.avatar
+        }
+    }), 200
+
+
+@jwt.token_in_blocklist_loader
+def is_token_revoked(jwt_header, jwt_payload):
+    jti = jwt_payload["jti"]
+    token = db.session.query(TokenBlocklist).filter_by(jti=jti).first()
+    return token is not None
+
+
+@auth_bp.route('/logout', methods=['POST'])
+@jwt_required()
+def logout():
+    jti = get_jwt()["jti"]
+    token_type = get_jwt()["type"]
+    user_id = get_jwt_identity()
+
+    expires = datetime.fromtimestamp(get_jwt()["exp"], tz=UTC)
+    blocked_token = TokenBlocklist(
+        jti=jti,
+        token_type=token_type,
+        user_id=user_id,
+        expires=expires
+    )
+    db.session.add(blocked_token)
+    db.session.commit()
+
+    return jsonify({"msg": "Токен успешно отозван"}), 200
+
+# end of auth_routes.py
+
+# common_routes.py
+
+# end of common_routes.py
+
+# game_routes.py
+from flask import Blueprint, request, jsonify
+from flask_jwt_extended import (
+    create_access_token, create_refresh_token, jwt_required,
+    get_jwt_identity
+)
+
+from app.extensions import db
+# TODO: Переместить функцию в другую папку и переименовать в save_file
+from app.services.user_service import save_avatar
+from app.services.game_service import *
+
+
+game_bp = Blueprint('game', __name__, url_prefix='/api/games')
+
+
+@game_bp.route('/', methods=['GET'])
+def get_games():
+    games = get_all_games()
+
+    return jsonify([
+        {
+            'id': str(game.id),
+            'title': game.title,
+            'image_path': game.image_path,
+            'logo_path': game.logo_path,
+            'service_name': game.service_name 
+        } for game in games
+    ]), 200
+
+
+@game_bp.route('/<uuid:game_id>', methods=['GET'])
+def get_game(game_id):
+    game = get_game(game_id)
+
+    if not game:
+        return jsonify({'msg': 'Игра не найдена'}), 404
+    
+    return jsonify([])
+
+
+# end of game_routes.py
+
+# match_routes.py
+
+# end of match_routes.py
+
+# tournament_routes.py
+from flask import Blueprint, request, jsonify
+from flask_jwt_extended import (
+    create_access_token, create_refresh_token, jwt_required,
+    get_jwt_identity
+)
+
+from app.extensions import db
+# TODO: Переместить функцию в другую папку и переименовать в save_file
+from app.services.user_service import save_avatar
+from app.services.tournament_service import create_tournament
+from app.models import Tournament, GroupStage, Group, PlayoffStage, PrizeTable, PrizeTableRow, Match, PlayoffStageMatch
+
+from datetime import datetime, UTC
+
+
+tournament_bp = Blueprint('tournament', __name__,
+                          url_prefix='/api/tournaments')
+
+
+@tournament_bp.route('/', methods=['POST'])
+@jwt_required()
+def create_new_tournament():
+    user_id = get_jwt_identity()
+    data = request.form
+    file = request.files.get('banner')
+
+    title = data.get('title')
+    game_id = data.get('game_id')
+    prize_pool = data.get('prize_pool', '0')
+    max_players = data.get('max_players')
+    tournament_type = data.get('tournament_type')
+    start_time_str = data.get('start_time')
+
+    has_group_stage = data.get('group_stage', 'false').lower() == 'true'
+    elimination_type = data.get('elimination_type', 'single')
+    num_groups = int(data.get('num_groups', 2))
+    qual_to_winners = int(data.get('qual_to_winners', 2))
+    qual_to_losers = int(data.get('qual_to_losers', 2))
+
+    if not all([title, game_id, max_players, tournament_type, start_time_str]):
+        return jsonify({'msg': 'Заполните все обязательные поля'}), 400
+
+    banner_url = None
+    if file:
+        filename = save_avatar(file, folder='tournament_banners')
+        banner_url = f"/static/tournament_banners/{filename}"
+
+    tournament = create_tournament(title=title, creator_id=user_id, game_id=game_id,
+                                   max_players=max_players, type=tournament_type,
+                                   start_time_str=start_time_str, prize_pool=prize_pool,
+                                   banner_file=banner_url, has_group_stage=has_group_stage,
+                                   elimination_type=elimination_type, num_groups=num_groups,
+                                   qual_to_winners=qual_to_winners, qual_to_losers=qual_to_losers)
+
+    return jsonify({'msg': 'Турнир успешно создан', 'tournament_id': str(tournament.id)}), 201
+
+# end of tournament_routes.py
+
+# user_routes.py
+from flask import Blueprint, request, jsonify
+from werkzeug.security import check_password_hash, generate_password_hash
+from flask_jwt_extended import (
+    create_access_token, create_refresh_token, jwt_required,
+    get_jwt_identity
+)
+from app.extensions import db
+from app.models import User, Connection, UserRequest, GameAccount
+from app.services.user_service import create_support_ticket, get_user_profile, get_user_tickets, update_user, save_avatar, delete_avatar, create_game_account_if_absent, unlink_game_account
+
+from datetime import datetime, UTC
+
+user_bp = Blueprint('user', __name__, url_prefix='/api/user')
+
+
+# region Profiles
+
+@user_bp.route('/profile/<uuid:user_id>', methods=['GET'])
+def get_profile(user_id):
+    user = User.query.get(user_id)
+
+    if not user:
+        return jsonify({'msg': 'Пользователь не найден'}), 404
+
+    return jsonify({
+        'id': str(user.id),
+        'name': user.name,
+        'avatar': user.avatar,
+        'last_online': user.last_online.isoformat() if user.last_online else None
+    }), 200
+
+
+# Просмотр своего профиля
+@user_bp.route('/me', methods=['GET'])
+@jwt_required()
+def get_my_profile():
+    user_id = get_jwt_identity()
+    user = User.query.get(user_id)
+
+    if not user:
+        return jsonify({'msg': 'Пользователь не найден'}), 404
+
+    return jsonify({
+        'id': str(user.id),
+        'name': user.name,
+        'email': user.email,
+        'avatar': user.avatar,
+        'last_online': user.last_online.isoformat() if user.last_online else None,
+        'is_banned': str(user.is_banned),
+        'ban_until': user.ban_until.isoformat() if user.ban_until else None,
+    }), 200
+
+# Обновление своего профиля
+
+
+@user_bp.route('/me', methods=['PUT'])
+@jwt_required()
+def update_my_profile():
+    user_id = get_jwt_identity()
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'msg': 'Пользователь не найден'}), 404
+
+    data = request.form
+    name = data.get('name')
+    email = data.get('email')
+    password = data.get('password')
+    avatar_file = request.files.get('avatar')
+
+    avatar_url = None
+    if avatar_file:
+        try:
+            # Удаляем старый аватар
+            delete_avatar(user.avatar)
+
+            # Пытаемся сохранить новый аватар
+            avatar_url = save_avatar(avatar_file, user_id=user_id)
+        except ValueError as e:
+            return jsonify({'msg': str(e)}), 400
+
+    updated_user = update_user(
+        user_id=user_id,
+        name=name,
+        email=email,
+        password=password,
+        avatar=avatar_url
+    )
+
+    return jsonify({
+        'msg': 'Профиль обновлен',
+        'user': {
+            'id': str(updated_user.id),
+            'name': updated_user.name,
+            'email': updated_user.email,
+            'avatar': updated_user.avatar
+        }
+    }), 200
+
+
+# Удаление своего аккаунта
+@user_bp.route('/me', methods=['DELETE'])
+@jwt_required()
+def delete_my_profile():
+    user_id = get_jwt_identity()
+    user = User.query.get(user_id)
+
+    if not user:
+        return jsonify({'msg': 'Пользователь не найден'}), 404
+
+    db.session.delete(user)
+    db.session.commit()
+
+    return jsonify({'msg': 'Пользователь успешно удален'}), 200
+
+
+@user_bp.route('/me/password', methods=['PATCH'])
+@jwt_required()
+def change_password():
+    user_id = get_jwt_identity()
+    user = User.query.get(user_id)
+
+    if not user:
+        return jsonify({'msg': 'Пользователь не найден'}), 404
+
+    data = request.get_json()
+    current_password = data.get('current_password')
+    new_password = data.get('new_password')
+
+    # Проверяем текущий пароль
+    if not check_password_hash(user.password_hash, current_password):
+        return jsonify({'msg': 'Неверный текущий пароль'}), 401
+
+    # Обновляем пароль
+    user.password_hash = generate_password_hash(new_password)
+    db.session.commit()
+
+    return jsonify({'msg': 'Пароль успешно изменен'}), 200
+
+
+@user_bp.route('/me/avatar', methods=['PATCH'])
+@jwt_required()
+def change_avatar():
+    user_id = get_jwt_identity()
+    user = User.query.get(user_id)
+
+    if not user:
+        return jsonify({'msg': 'Пользователь не найден'}), 404
+
+    avatar_file = request.files.get('avatar')
+
+    if not avatar_file:
+        return jsonify({'msg': 'Пожалуйста, загрузите новый аватар'}), 400
+
+    try:
+        # Удаляем старый аватар
+        delete_avatar(user.avatar)
+
+        # Сохраняем новый аватар
+        avatar_url = save_avatar(avatar_file, user_id=user_id)
+    except ValueError as e:
+        return jsonify({'msg': str(e)}), 400
+
+    user.avatar = avatar_url
+    db.session.commit()
+
+    return jsonify({'msg': 'Аватар успешно обновлен', 'avatar': avatar_url}), 200
+
+
+@user_bp.route('/me/ping', methods=['POST'])
+@jwt_required()
+def user_ping():
+    user_id = get_jwt_identity()
+    user = User.query.get(user_id)
+
+    if not user:
+        return jsonify({'msg': 'Пользователь не найден'}), 404
+
+    user.is_online = True
+    user.last_online = datetime.now(UTC)
+    db.session.commit()
+
+    return jsonify({'msg': 'Пинг получен'}), 200
+
+# endregion
+
+
+@user_bp.route('/search', methods=['GET'])
+def search_user():
+    nickname = request.args.get('nickname')
+
+    if not nickname:
+        return jsonify({'msg': 'Пожалуйста, укажите никнейм для поиска'}), 400
+
+    users = User.query.filter(User.name.ilike(f"%{nickname}%")).all()
+
+    # if not users:
+    #     return jsonify({'msg': 'Пользователи не найдены'}), 404
+
+    return jsonify([
+        {
+            'id': str(user.id),
+            'name': user.name,
+            'avatar': user.avatar
+        } for user in users
+    ]), 200
+
+
+@user_bp.route('/me/friends', methods=['POST'])
+@jwt_required()
+def send_friend_request():
+    user_id = get_jwt_identity()
+    target_user_id = request.json.get('target_user_id')
+
+    if user_id == target_user_id:
+        return jsonify({'msg': 'Нельзя отправить заявку самому себе'}), 400
+
+    target_user = User.query.get(target_user_id)
+
+    if not target_user:
+        return jsonify({'msg': 'Пользователь не найден'}), 404
+
+    # Проверка на уже существующие заявки
+    existing_request = UserRequest.query.filter_by(
+        from_user_id=user_id, to_user_id=target_user_id).first()
+    if existing_request:
+        return jsonify({'msg': 'Заявка уже отправлена'}), 400
+
+    # Создаем новую заявку
+    friend_request = UserRequest(
+        from_user_id=user_id, to_user_id=target_user_id)
+    db.session.add(friend_request)
+    db.session.commit()
+
+    return jsonify({'msg': 'Заявка на дружбу отправлена'}), 200
+
+
+@user_bp.route('/me/friends/requests', methods=['GET'])
+@jwt_required()
+def get_friend_requests():
+    user_id = get_jwt_identity()
+
+    incoming_requests = UserRequest.query.filter_by(to_user_id=user_id).all()
+    outgoing_requests = UserRequest.query.filter_by(from_user_id=user_id).all()
+
+    return jsonify({
+        'incoming_requests': [{'id': str(req.from_user.id), 'name': req.from_user.name} for req in incoming_requests],
+        'outgoing_requests': [{'id': str(req.to_user.id), 'name': req.to_user.name} for req in outgoing_requests]
+    }), 200
+
+
+@user_bp.route('/me/friends/requests/<uuid:request_id>', methods=['POST'])
+@jwt_required()
+def respond_to_friend_request(request_id):
+    user_id = get_jwt_identity()
+    action = request.json.get('action')  # 'accept' или 'reject'
+
+    friend_request = UserRequest.query.get(request_id)
+
+    if not friend_request:
+        return jsonify({'msg': 'Заявка не найдена'}), 404
+
+    if friend_request.to_user_id != user_id:
+        return jsonify({'msg': 'Это не ваша заявка'}), 403
+
+    if action == 'accept':
+        # Добавляем пользователя в друзья
+        user = User.query.get(user_id)
+        user.friends.append(friend_request.from_user)
+        db.session.delete(friend_request)
+        db.session.commit()
+
+        return jsonify({'msg': 'Заявка на дружбу принята'}), 200
+
+    elif action == 'reject':
+        db.session.delete(friend_request)
+        db.session.commit()
+
+        return jsonify({'msg': 'Заявка отклонена'}), 200
+
+    return jsonify({'msg': 'Неверное действие'}), 400
+
+
+@user_bp.route('/me/friends', methods=['GET'])
+@jwt_required()
+def get_friends():
+    user_id = get_jwt_identity()
+    user = User.query.get(user_id)
+
+    if not user:
+        return jsonify({'msg': 'Пользователь не найден'}), 404
+
+    friends = [
+        {
+            'id': str(friend.id),
+            'name': friend.name,
+            'avatar': friend.avatar
+        }
+        for friend in user.friends
+    ]
+
+    return jsonify(friends), 200
+
+
+@user_bp.route('/me/friends/<uuid:friend_id>', methods=['DELETE'])
+@jwt_required()
+def remove_friend(friend_id):
+    user_id = get_jwt_identity()
+    user = User.query.get(user_id)
+    friend = User.query.get(friend_id)
+
+    if not user or not friend:
+        return jsonify({'msg': 'Пользователь не найден'}), 404
+
+    if friend not in user.friends:
+        return jsonify({'msg': 'Этот пользователь не в списке ваших друзей'}), 400
+
+    # Удаляем дружбу в обе стороны
+    user.friends.remove(friend)
+    friend.friends.remove(user)
+    db.session.commit()
+
+    return jsonify({'msg': 'Друг удален'}), 200
+
+
+# region GameAccounts
+
+@user_bp.route('/me/game_accounts', methods=['POST'])
+@jwt_required()
+def add_game_account():
+    user_id = get_jwt_identity()
+    data = request.get_json()
+
+    game_id = data.get('game_id')
+    service_name = data.get('service_name')
+    external_user_url = data.get('external_user_url')
+
+    if not all([game_id, service_name, external_user_url]):
+        return jsonify({'msg': 'Необходимо указать game_id, service_name и external_user_url'}), 400
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'msg': 'Пользователь не найден'}), 404
+
+    # Проверка: есть ли уже у этого пользователя такой connection
+    existing_connection = Connection.query.filter_by(
+        service_name=service_name,
+        external_user_url=external_user_url,
+        user_id=user_id
+    ).first()
+
+    if existing_connection:
+        existing_account = GameAccount.query.filter_by(
+            user_id=user_id,
+            connection_id=existing_connection.id
+        ).first()
+
+        if existing_account:
+            return jsonify({'msg': 'Такой игровой аккаунт уже привязан'}), 409
+
+    # Создаем аккаунт, если всё чисто
+    account = create_game_account_if_absent(
+        user_id=user_id,
+        connection_id=None,
+        game_id=game_id,
+        service_name=service_name,
+        external_url=external_user_url
+    )
+
+    return jsonify({
+        'msg': 'Игровой аккаунт успешно добавлен',
+        'account': {
+            'id': str(account.id),
+            'game_id': str(account.game_id),
+            'service_name': account.connection.service_name,
+            'external_user_url': account.connection.external_user_url
+        }
+    }), 201
+
+
+@user_bp.route('/me/game_accounts/<uuid:connection_id>', methods=['DELETE'])
+@jwt_required()
+def delete_game_account(connection_id):
+    user_id = get_jwt_identity()
+
+    # Разрываем связь
+    unlink_game_account(user_id=user_id, connection_id=connection_id)
+
+    return jsonify({'msg': 'Игровой аккаунт успешно удален'}), 200
+
+
+@user_bp.route('/me/game_accounts', methods=['GET'])
+@jwt_required()
+def list_game_accounts():
+    user_id = get_jwt_identity()
+    user = User.query.get(user_id)
+
+    if not user:
+        return jsonify({'msg': 'Пользователь не найден'}), 404
+
+    accounts = [
+        {
+            'id': str(acc.id),
+            'game_id': str(acc.game_id),
+            'service_name': acc.connection.service_name,
+            'external_user_url': acc.connection.external_user_url
+        }
+        for acc in user.game_accounts
+    ]
+
+    return jsonify(accounts), 200
+
+# endregion
+
+
+# region SupportTickets
+
+@user_bp.route('/me/support_tickets', methods=['POST'])
+@jwt_required()
+def create_ticket():
+    user_id = get_jwt_identity()
+    data = request.get_json()
+
+    theme = data.get('theme')
+    text = data.get('text')
+
+    if not theme or not text:
+        return jsonify({'msg': 'Тема и текст обязательны'}), 400
+
+    ticket = create_support_ticket(user_id=user_id, theme=theme, text=text)
+
+    if ticket is None:
+        return jsonify({'msg': 'Сообщение не может быть пустым'}), 400
+
+    return jsonify({
+        'msg': 'Тикет успешно создан',
+        'ticket': {
+            'id': str(ticket.id),
+            'theme': ticket.theme,
+            'text': ticket.text,
+            'status': ticket.status,
+            'created_at': ticket.created_at.isoformat() if hasattr(ticket, 'created_at') else None
+        }
+    }), 201
+
+
+@user_bp.route('/me/support_tickets', methods=['GET'])
+@jwt_required()
+def get_my_tickets():
+    user_id = get_jwt_identity()
+    tickets = get_user_tickets(user_id=user_id)
+
+    return jsonify([
+        {
+            'id': str(ticket.id),
+            'theme': ticket.theme,
+            'text': ticket.text,
+            'status': ticket.status,
+            'created_at': ticket.created_at.isoformat() if hasattr(ticket, 'created_at') else None
+        }
+        for ticket in tickets
+    ]), 200
+
+# endregion
+
+# end of user_routes.py
+

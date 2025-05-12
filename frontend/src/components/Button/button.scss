@@ -1,0 +1,44 @@
+@import url("../../fonts.scss");
+
+.button {
+  color: #fff;
+  font-family: roboto-b;
+  background: #ff4e53;
+  border-radius: 10px;
+  text-decoration: none;
+  border: none;
+
+  &__link {
+    padding: 15px 80px;
+    font-size: clamp(12px, 1.2vw, 18px);
+  }
+
+  &__modal {
+    padding: 10px 25px;
+    font-size: clamp(12px, 1.2vw, 16px);
+  }
+  &__svg {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+  }
+
+  &__submit, &__external {
+    padding: 10px;
+    font-size: clamp(12px, 1.2vw, 16px);
+  }
+  &__submit.sent,
+  &__submit:disabled,
+ &__external.disabled{
+    background-color: gray;
+    color: white;
+    cursor: not-allowed;
+  }
+
+  @media (max-width: 1300px) {
+    padding: 8px 18px;
+  }
+}

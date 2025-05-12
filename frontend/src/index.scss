@@ -1,0 +1,38 @@
+*,
+*::before,
+*::after {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+}
+ul, ul li {
+	list-style: none;
+}
+body {
+	/* font-size: 18px; */
+	color: #fff;
+	/* background-color: #0f0e0e; */
+	/* background-color: #101010; */
+	background-color: #141414;
+}
+h1 {
+	/* font-size: 76px; */
+	font-size: clamp(32px, 5vw, 76px);
+}
+a {
+text-decoration: none;
+}
+
+.MainWrapper {
+  max-width: 1800px;
+  width: 93%;
+  margin: 0 auto;
+  padding: 0 3% 0 10%;
+  padding-top: min(4vh, 40px); // или Math.max(window.innerHeight * 0.04, 40) если хочется более явно
+@media (max-width: 768px) {
+
+    padding: 0 4%;
+padding-top: min(4vh, 40px);
+  
+}
+}

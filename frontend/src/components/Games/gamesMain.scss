@@ -1,0 +1,47 @@
+.games {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 20px;
+  row-gap: 30px;
+  margin-bottom: clamp(70px, 2vh, 120px);
+
+  @media (max-width: 768px) {
+    margin-bottom: 30px;
+  }
+
+  &__empty {
+    font-family: roboto-r;
+  }
+}
+
+.modal .game {
+  width: calc((100% - 20px * 2) / 3);
+}
+
+.game {
+  width: calc((100% - 20px * 5) / 6);
+
+  &__img {
+    border-radius: 10px;
+    max-width: 100%;
+    margin-bottom: 3%;
+  }
+
+  &__title {
+    color: #fff;
+    font-size: clamp(16px, 1.2vw, 18px);
+    font-family: roboto-b;
+  }
+
+  @media (max-width: 1024px) {
+    width: calc((100% - 20px * 3) / 4);
+  }
+
+  @media (max-width: 768px) {
+    width: calc((100% - 20px * 2) / 3);
+  }
+
+  @media (max-width: 500px) {
+    width: calc((100% - 20px * 1) / 2);
+  }
+}

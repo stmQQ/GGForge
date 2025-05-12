@@ -1,0 +1,22 @@
+.profile {
+  &__info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: clamp(20px, 8vw, 35px);
+  }
+  &__status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 14px;
+    justify-content: center;
+
+    &-indicator {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+  }
+}

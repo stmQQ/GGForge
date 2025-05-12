@@ -1,0 +1,181 @@
+.match-card {
+  border-radius: 8px;
+  border: 1px solid #2f2d2d;
+  padding: 10px;
+  width: calc((100% - 10px * 3) / 4);
+  max-width: 290px;
+
+  @media (max-width: 1024px) {
+    width: calc((100% - 10px * 2) / 3);
+  }
+
+  @media (max-width: 768px) {
+    width: calc((100% - 10px * 1) / 2);
+  }
+
+  @media (max-width: 500px) {
+    width: 100%;
+  }
+
+  &__header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+
+    &-left,
+    &-right {
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+  }
+
+  &__status {
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    color: white;
+
+    &.status--upcoming {
+      background-color: #2ea149;
+    }
+
+    &.status--ongoing {
+      background-color: #ffc107;
+      color: #212529;
+    }
+
+    &.status--completed {
+      background-color: #6c757d;
+    }
+
+    &.status--unknown {
+      background-color: #dc3545;
+    }
+  }
+
+  &__format {
+    color: white;
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 12px;
+    background-color: #2f2d2d;
+  }
+
+  &__teams {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  &__team {
+    background-color: #2f2d2d;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 10px;
+    border-radius: 10px;
+  }
+
+  &__avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  &__name {
+    color: white;
+    font-size: 14px;
+    flex: 1;
+    margin-left: 10px;
+  }
+
+  &__score {
+    color: white;
+    font-size: 14px;
+    font-weight: bold;
+    width: 30px;
+    text-align: right;
+  }
+
+  &.match-card--bracket {
+    width: 100%;
+    max-width: 250px;
+    margin: 0 auto;
+
+    @media (max-width: 768px) {
+      max-width: 200px;
+    }
+  }
+}
+
+.match-details-modal {
+  // margin: 0 auto;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+
+  gap: 1rem;
+}
+.match-details-modal__header {
+  // display: flex;
+  // justify-content: center;
+  // gap: 100px;
+  // align-items: center;
+}
+
+.match-details-modal__teams {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.match-details-modal__avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.winner-block {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 16px;
+  margin-bottom: 10px;
+  border: 1px solid #fff;
+  border-radius: 8px;
+
+  &-right {
+    display: flex;
+    align-items: center;
+  }
+
+  &.ongoin-maps {
+    flex-direction: column;
+    gap: 10px;
+  }
+}
+
+.winner-block__title {
+  margin-bottom: 8px;
+}
+
+.winner-block__details {
+  display: flex;
+  align-items: center;
+  gap: 2%;
+}
+
+.winner-block__avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.ongoing-block__participants {
+  display: flex;
+  justify-content: space-around;
+}

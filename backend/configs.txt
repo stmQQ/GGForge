@@ -1,0 +1,53 @@
+# __init__.py
+from .dev import DevConfig
+from .prod import ProdConfig
+
+config_by_name = dict(
+    dev=DevConfig,
+    prod=ProdConfig
+)
+
+# end of __init__.py
+
+# base.py
+import os
+
+class BaseConfig:
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'super-secret-key')
+    CORS_ORIGINS = '*'
+# end of base.py
+
+# dev.py
+from .base import BaseConfig
+from datetime import timedelta
+
+
+class DevConfig(BaseConfig):
+    DEBUG = True
+    SQLALCHEMY_DATABASE_URI = "postgresql://postgres:postgres@localhost/dev_db"
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    JWT_BLACKLIST_ENABLED = True
+    JWT_BLACKLIST_TOKEN_CHECKS = ["access", "refresh"]
+    JWT_SECRET_KEY = 'your-super-secret-key'
+    JWT_TOKEN_LOCATION = ['headers']
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=30)
+
+# end of dev.py
+
+# prod.py
+from .base import BaseConfig
+from datetime import timedelta
+
+
+class ProdConfig(BaseConfig):
+    DEBUG = True
+    SQLALCHEMY_DATABASE_URI = 'postgresql://postgres:postgres@localhost/dev_db'
+    JWT_BLACKLIST_ENABLED = True
+    JWT_BLACKLIST_TOKEN_CHECKS = ["access", "refresh"]
+    JWT_SECRET_KEY = 'your-super-secret-key'
+    JWT_TOKEN_LOCATION = ['headers']
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=30)
+
+# end of prod.py
+

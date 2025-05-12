@@ -1,0 +1,56 @@
+// @import url("../../fonts.scss");
+
+.tournaments {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 20px;
+  row-gap: 30px;
+  margin-bottom: clamp(80px, 9vw, 110px);
+
+  @media (max-width: 768px) {
+    margin-bottom: 30px;
+  }
+
+  &.profile-view {
+    .tournament {
+      width: calc((100% - 20px * 2) / 3);
+
+      @media (max-width: 768px) {
+        width: calc((100% - 20px * 1) / 2);
+      }
+    
+    }
+  }
+}
+
+.tournament {
+  width: calc((100% - 20px * 3) / 4);
+
+  &__img {
+    border-radius: 10px;
+    width: 100%;
+    height: clamp(120px, 11vw, 200px);
+    margin-bottom: 3%;
+    object-fit: cover;
+  }
+
+  &__title {
+    color: #fff;
+    font-size: clamp(16px, 1.2vw, 18px);
+    font-family: roboto-b;
+    margin: 1% 0;
+  }
+  &__date,
+  &__inf {
+    color: #ff4e53;
+    font-size: clamp(12px, 1.2vw, 16px);
+    font-family: roboto-r;
+  }
+  @media (max-width: 768px) {
+    width: calc((100% - 20px * 2) / 3);
+  }
+  @media (max-width: 600px) {
+    width: calc((100% - 20px * 1) / 2);
+  }
+
+}

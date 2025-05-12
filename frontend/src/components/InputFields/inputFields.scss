@@ -1,0 +1,28 @@
+@import url("../../fonts.scss");
+
+.field-wrapper {
+  display: flex;
+  flex-direction: column;
+  font-family: roboto-r;
+  gap: 1%;
+  .radio-option {
+    display: flex;
+    gap: 0.5rem;
+  }
+}
+.field-label {
+  font-size: clamp(12px, 2vw, 16px);
+  margin-bottom: 0.5%;
+}
+.text-input,
+.textarea-input {
+  padding: 8px;
+  border-radius: 6px;
+  border: none;
+  font-size: 14px;
+  font-family: roboto-r;
+}
+.textarea-input {
+  resize: vertical;
+  min-height: 80px;
+}

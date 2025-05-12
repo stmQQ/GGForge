@@ -1,0 +1,558 @@
+# __init__.py
+from .user_models import *
+from .game_models import *
+from .team_models import *
+from .match_models import *
+from .tournament_models import *
+from .relations import *
+# end of __init__.py
+
+# game_models.py
+from app.extensions import db
+from sqlalchemy.dialects.postgresql import UUID
+import uuid
+from datetime import datetime
+
+
+class Game(db.Model):
+    __tablename__ = 'games'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title = db.Column(db.String(64), nullable=False, unique=True)
+    image_path = db.Column(db.String(256), nullable=False, unique=True)
+    logo_path = db.Column(db.String(256), nullable=False, unique=True)
+    service_name = db.Column(db.String(32), nullable=False)
+    tournaments = db.relationship(
+        'Tournament', back_populates='game', lazy='selectin')
+    achievements = db.relationship(
+        'Achievement', back_populates='game', lazy='selectin')
+    game_accounts = db.relationship(
+        'GameAccount', back_populates='game', lazy='selectin')
+
+
+class Achievement(db.Model):
+    __tablename__ = 'achievements'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    title = db.Column(db.String(64), nullable=False, unique=True)
+    description = db.Column(db.String(256))
+
+    game_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'games.id'), nullable=False)
+    game = db.relationship(
+        'Game', back_populates='achievements', lazy='selectin')
+
+    users = db.relationship('User', secondary='user_achievements',
+                            back_populates='achievements', lazy='selectin')
+
+# end of game_models.py
+
+# match_models.py
+from app.extensions import db
+from sqlalchemy.dialects.postgresql import UUID
+import uuid
+
+
+class Match(db.Model):
+    __tablename__ = 'matches'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    type = db.Column(db.String(16), nullable=False)  # solo/team
+    format = db.Column(db.String(8), nullable=False)  # bo1/bo3...
+    # upcoming/ongoing/completed
+    status = db.Column(db.String(16), nullable=False)
+    scheduled_time = db.Column(db.DateTime)
+    is_playoff = db.Column(db.Boolean, default=False, nullable=False)
+
+    participant1_id = db.Column(UUID(as_uuid=True), nullable=True)
+    participant2_id = db.Column(UUID(as_uuid=True), nullable=True)
+    participant1_score = db.Column(db.Integer, default=0)
+    participant2_score = db.Column(db.Integer, default=0)
+    winner_id = db.Column(UUID(as_uuid=True), nullable=True)
+
+    tournament_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'tournaments.id', ondelete='CASCADE'), nullable=False)
+    tournament = db.relationship('Tournament', back_populates='matches')
+
+    group_id = db.Column(UUID(as_uuid=True),
+                         db.ForeignKey('groups.id'), nullable=True)
+    group = db.relationship('Group', back_populates='matches')
+
+    playoff_match_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'playoff_stage_matches.id', ondelete='CASCADE'), nullable=True, unique=True)
+    playoff_match = db.relationship(
+        'PlayoffStageMatch', back_populates='match', uselist=False)
+
+    maps = db.relationship('Map', back_populates='match',
+                           lazy='selectin', cascade='all, delete-orphan')
+
+
+class PlayoffStageMatch(db.Model):
+    __tablename__ = 'playoff_stage_matches'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    round_number = db.Column(db.String(8), nullable=False)  # W1, L2 и т.д.
+    bracket = db.Column(db.String(8), nullable=False)
+
+    winner_to_match_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'playoff_stage_matches.id'), nullable=True)
+    loser_to_match_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'playoff_stage_matches.id'), nullable=True)
+    depends_on_match_1_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'playoff_stage_matches.id'), nullable=True)
+    depends_on_match_2_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'playoff_stage_matches.id'), nullable=True)
+
+    winner_to_match = db.relationship('PlayoffStageMatch', foreign_keys=[
+                                      winner_to_match_id], remote_side='PlayoffStageMatch.id')
+    loser_to_match = db.relationship('PlayoffStageMatch', foreign_keys=[
+                                     loser_to_match_id], remote_side='PlayoffStageMatch.id')
+    depends_on_match_1 = db.relationship('PlayoffStageMatch', foreign_keys=[
+                                         depends_on_match_1_id], remote_side='PlayoffStageMatch.id')
+    depends_on_match_2 = db.relationship('PlayoffStageMatch', foreign_keys=[
+                                         depends_on_match_2_id], remote_side='PlayoffStageMatch.id')
+
+    playoff_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'playoff_stages.id', ondelete='CASCADE'), nullable=False)
+    playoff_stage = db.relationship(
+        'PlayoffStage', back_populates='playoff_matches')
+
+    # match_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+    #     'matches.id', nullable=False, unique=True))
+    match = db.relationship(
+        'Match', back_populates='playoff_match', uselist=False, cascade='all, delete-orphan')
+
+
+class Map(db.Model):
+    __tablename__ = 'maps'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    external_url = db.Column(db.String(128), nullable=True)
+    winner_id = db.Column(UUID(as_uuid=True), nullable=True)
+
+    match_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'matches.id', ondelete='CASCADE'), nullable=False)
+    match = db.relationship('Match', back_populates='maps')
+
+# end of match_models.py
+
+# relations.py
+from app.extensions import db
+from sqlalchemy.dialects.postgresql import UUID
+from datetime import datetime, UTC
+
+user_achievements = db.Table(
+    'user_achievements',
+    db.Column('user_id', UUID(as_uuid=True), db.ForeignKey('users.id')),
+    db.Column('achievement_id', UUID(as_uuid=True),
+              db.ForeignKey('achievements.id')),
+    db.Column('unlocked_at', db.DateTime,
+              nullable=False, default=datetime.now(UTC))
+)
+
+tournament_participants = db.Table(
+    'tournament_participants',
+    db.Column('tournament_id', UUID(as_uuid=True),
+              db.ForeignKey('tournaments.id')),
+    db.Column('user_id', UUID(as_uuid=True), db.ForeignKey('users.id'))
+)
+
+tournament_teams = db.Table(
+    'tournament_teams',
+    db.Column('tournament_id', UUID(as_uuid=True),
+              db.ForeignKey('tournaments.id')),
+    db.Column('team_id', UUID(as_uuid=True), db.ForeignKey('teams.id'))
+)
+
+# match_participants = db.Table(
+#     'match_participants',
+#     db.Column('match_id', UUID(as_uuid=True), db.ForeignKey('matches.id')),
+#     db.Column('user_id', UUID(as_uuid=True), db.ForeignKey('users.id'))
+# )
+
+group_users = db.Table(
+    'group_users',
+    db.Column('group_id', UUID(as_uuid=True), db.ForeignKey('groups.id')),
+    db.Column('user_id', UUID(as_uuid=True), db.ForeignKey('users.id'))
+)
+
+group_teams = db.Table(
+    'group_teams',
+    db.Column('group_id', UUID(as_uuid=True), db.ForeignKey('groups.id')),
+    db.Column('team_id', UUID(as_uuid=True), db.ForeignKey('teams.id'))
+)
+
+team_members = db.Table(
+    'team_members',
+    db.Column('team_id', UUID(as_uuid=True), db.ForeignKey('teams.id')),
+    db.Column('user_id', UUID(as_uuid=True), db.ForeignKey('users.id'))
+)
+
+# end of relations.py
+
+# team_models.py
+from app.extensions import db
+from sqlalchemy.dialects.postgresql import UUID
+import uuid
+
+
+class Team(db.Model):
+    __tablename__ = 'teams'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    title = db.Column(db.String(32), unique=True, nullable=False)
+    description = db.Column(db.Text)
+    logo_path = db.Column(db.String(256))
+
+    leader_id = db.Column(UUID(as_uuid=True),
+                          db.ForeignKey('users.id'), nullable=False)
+    leader = db.relationship('User', back_populates='led_teams', foreign_keys=[
+                             leader_id], lazy='selectin')
+
+    players = db.relationship(
+        'User', secondary='team_members', back_populates='member_teams', lazy='selectin')
+    participated_tournaments = db.relationship(
+        'Tournament', secondary='tournament_teams', back_populates='teams', lazy='selectin')
+    groups = db.relationship(
+        'Group', secondary='group_teams', back_populates='teams', lazy='selectin')
+    group_rows = db.relationship(
+        'GroupRow', back_populates='team', lazy='selectin')
+    prizetable_rows = db.relationship(
+        'PrizeTableRow', back_populates='team', lazy='selectin')
+    requests = db.relationship(
+        'UserRequest', back_populates='team', lazy='selectin')
+
+# end of team_models.py
+
+# tournament_models.py
+from app.extensions import db
+from sqlalchemy.dialects.postgresql import UUID
+import uuid
+from sqlalchemy.sql import func
+
+
+class Tournament(db.Model):
+    __tablename__ = 'tournaments'
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    title = db.Column(db.String(64), unique=True, nullable=False)
+    start_time = db.Column(db.DateTime, nullable=False, default=func.now())
+    prize_fund = db.Column(db.String(8), default='0')
+    max_players = db.Column(db.Integer, nullable=False)
+    # solo / team
+    type = db.Column(db.String(16), nullable=False)
+    # open, ongoing, completed, canceled
+    status = db.Column(db.String(16), nullable=False, default='open')
+    banner_url = db.Column(db.String(128))
+    match_format = db.Column(db.String(8))
+    final_format = db.Column(db.String(8))
+
+    game_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'games.id'), nullable=False)
+    game = db.relationship('Game', back_populates='tournaments')
+
+    group_stage = db.relationship(
+        'GroupStage', back_populates='tournament', uselist=False, cascade='all, delete-orphan')
+
+    playoff_stage = db.relationship(
+        'PlayoffStage', back_populates='tournament', uselist=False, cascade='all, delete-orphan')
+
+    prize_table = db.relationship(
+        'PrizeTable', back_populates='tournament', uselist=False, cascade='all, delete-orphan')
+
+    creator_id = db.Column(
+        UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False)
+    creator = db.relationship('User', back_populates='created_tournaments')
+
+    participants = db.relationship(
+        'User', secondary='tournament_participants', back_populates='participated_tournaments')
+    teams = db.relationship(
+        'Team', secondary='tournament_teams', back_populates='participated_tournaments')
+    matches = db.relationship(
+        'Match', back_populates='tournament', cascade='all, delete-orphan')
+
+
+class GroupStage(db.Model):
+    __tablename__ = 'group_stages'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    tournament_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'tournaments.id', ondelete='CASCADE'), nullable=False)
+    tournament = db.relationship(
+        'Tournament', back_populates='group_stage', uselist=False)
+
+    groups = db.relationship(
+        'Group', back_populates='group_stage', cascade='all, delete-orphan')
+
+    winners_bracket_qualified = db.Column(db.Integer, nullable=False)
+
+
+class Group(db.Model):
+    __tablename__ = 'groups'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    letter = db.Column(db.String(4), nullable=False)
+    max_participants = db.Column(db.Integer, nullable=False)
+
+    groupstage_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'group_stages.id', ondelete='CASCADE'), nullable=False)
+    group_stage = db.relationship('GroupStage', back_populates='groups')
+
+    participants = db.relationship(
+        'User', secondary='group_users', back_populates='groups', lazy='selectin')
+    teams = db.relationship('Team', secondary='group_teams',
+                            back_populates='groups', lazy='selectin')
+    matches = db.relationship(
+        'Match', back_populates='group', lazy='selectin', cascade='all, delete-orphan')
+    rows = db.relationship('GroupRow', back_populates='group',
+                           lazy='selectin', cascade='all, delete-orphan')
+
+
+class GroupRow(db.Model):
+    __tablename__ = 'group_rows'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    place = db.Column(db.Integer, nullable=False)
+    wins = db.Column(db.Integer, nullable=True, default=0)
+    draws = db.Column(db.Integer, nullable=True, default=0)
+    loses = db.Column(db.Integer, nullable=True, default=0)
+
+    group_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'groups.id', ondelete='CASCADE'), nullable=False)
+    group = db.relationship('Group', back_populates='rows')
+
+    user_id = db.Column(UUID(as_uuid=True),
+                        db.ForeignKey('users.id'), nullable=True)
+    user = db.relationship('User', back_populates='group_rows')
+
+    team_id = db.Column(UUID(as_uuid=True),
+                        db.ForeignKey('teams.id'), nullable=True)
+    team = db.relationship('Team', back_populates='group_rows')
+
+
+class PlayoffStage(db.Model):
+    __tablename__ = 'playoff_stages'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    tournament_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'tournaments.id', ondelete='CASCADE'), nullable=False)
+    tournament = db.relationship(
+        'Tournament', back_populates='playoff_stage', uselist=False)
+
+    playoff_matches = db.relationship(
+        'PlayoffStageMatch', back_populates='playoff_stage', lazy='selectin', cascade='all, delete-orphan')
+
+
+class PrizeTable(db.Model):
+    __tablename__ = 'prize_tables'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    tournament_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'tournaments.id', ondelete='CASCADE'), nullable=False)
+    tournament = db.relationship(
+        'Tournament', back_populates='prize_table', uselist=False)
+
+    rows = db.relationship('PrizeTableRow', back_populates='prize_table',
+                           lazy='selectin', cascade='all, delete-orphan')
+    # Что здесь добавить???
+
+
+class PrizeTableRow(db.Model):
+    __tablename__ = 'prize_table_rows'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    place = db.Column(db.Integer, nullable=True)
+    prize = db.Column(db.String(16))
+
+    prize_table_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'prize_tables.id', ondelete='CASCADE'), nullable=False)
+    prize_table = db.relationship('PrizeTable', back_populates='rows')
+
+    user_id = db.Column(UUID(as_uuid=True),
+                        db.ForeignKey('users.id'), nullable=True)
+    user = db.relationship('User', back_populates='prizetable_rows')
+
+    team_id = db.Column(UUID(as_uuid=True),
+                        db.ForeignKey('teams.id'), nullable=True)
+    team = db.relationship('Team', back_populates='prizetable_rows')
+
+# end of tournament_models.py
+
+# user_models.py
+from app.extensions import db
+from sqlalchemy.dialects.postgresql import UUID
+from flask_login import UserMixin
+import uuid
+from sqlalchemy.sql import func
+
+
+mutual_friend_association = db.Table(
+    'mutual_friend_association',
+    db.Column('user_id', UUID(as_uuid=True), db.ForeignKey('users.id')),
+    db.Column('friend_id', UUID(as_uuid=True), db.ForeignKey('users.id'))
+)
+
+
+class User(db.Model, UserMixin):
+    __tablename__ = 'users'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = db.Column(db.String(64), nullable=False, unique=True)
+    email = db.Column(db.String(256), nullable=False, unique=True)
+    password_hash = db.Column(db.String(256), nullable=False)
+    avatar = db.Column(db.String(128))
+    registration_date = db.Column(
+        db.Date, nullable=False, default=func.current_date())
+    last_online = db.Column(db.DateTime, nullable=False, onupdate=func.now())
+    is_online = db.Column(db.Boolean, default=True)
+    is_admin = db.Column(db.Boolean, default=False)
+    is_banned = db.Column(db.Boolean, default=False)
+    ban_until = db.Column(db.DateTime)
+
+    friends = db.relationship(
+        'User', secondary=mutual_friend_association,
+        primaryjoin=id == mutual_friend_association.c.user_id,
+        secondaryjoin=id == mutual_friend_association.c.friend_id,
+        backref='friends_back'
+    )
+
+    game_accounts = db.relationship(
+        'GameAccount', back_populates='user', lazy='selectin')
+    connections = db.relationship(
+        'Connection', back_populates='user', lazy='selectin')
+    member_teams = db.relationship(
+        'Team', secondary='team_members', back_populates='players')
+    led_teams = db.relationship(
+        'Team', back_populates='leader', foreign_keys='Team.leader_id')
+    created_tournaments = db.relationship(
+        'Tournament', back_populates='creator', lazy='selectin')
+    achievements = db.relationship(
+        'Achievement', secondary='user_achievements', back_populates='users', lazy='selectin')
+    participated_tournaments = db.relationship(
+        'Tournament', secondary='tournament_participants', back_populates='participants', lazy='selectin')
+    groups = db.relationship('Group', secondary='group_users',
+                             back_populates='participants', lazy='selectin')
+    group_rows = db.relationship(
+        'GroupRow', back_populates='user', lazy='selectin')
+    prizetable_rows = db.relationship(
+        'PrizeTableRow', back_populates='user', lazy='selectin')
+    support_tokens = db.relationship(
+        'SupportToken', back_populates='user', lazy='selectin')
+    sent_requests = db.relationship('UserRequest',
+                                    back_populates='from_user',
+                                    foreign_keys='UserRequest.from_user_id',
+                                    lazy='selectin')
+    received_requests = db.relationship('UserRequest',
+                                        back_populates='to_user',
+                                        foreign_keys='UserRequest.to_user_id',
+                                        lazy='selectin')
+
+
+class GameAccount(db.Model):
+    __tablename__ = 'game_accounts'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'users.id'), nullable=False)
+    user = db.relationship(
+        'User', back_populates='game_accounts', lazy='selectin')
+
+    game_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'games.id'), nullable=False)
+    game = db.relationship(
+        'Game', back_populates='game_accounts', lazy='selectin')
+
+    connection_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'connections.id'), nullable=False)
+    connection = db.relationship(
+        'Connection', back_populates='game_account', uselist=False, lazy='joined')
+
+
+class Connection(db.Model):
+    __tablename__ = 'connections'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    service_name = db.Column(db.String(64), nullable=False)
+    external_user_url = db.Column(db.String(256), nullable=True, unique=True)
+
+    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'users.id'), nullable=False)
+    user = db.relationship('User', back_populates='connections')
+
+    game_account = db.relationship(
+        'GameAccount', back_populates='connection', uselist=False)
+
+
+class SupportToken(db.Model):
+    __tablename__ = 'support_tokens'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # theme = db.Column(db.String(64), nullable=False)
+    text = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(32), nullable=False, default='open')
+    response = db.Column(db.Text)
+
+    created_at = db.Column(db.DateTime, default=func.now())
+
+    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'users.id'), nullable=False)
+    user = db.relationship('User', back_populates='support_tokens')
+
+
+class UserRequest(db.Model):
+    __tablename__ = 'user_requests'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    from_user_id = db.Column(
+        UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False)
+    to_user_id = db.Column(
+        UUID(as_uuid=True), db.ForeignKey('users.id'), nullable=False)
+
+    type = db.Column(db.String(32), nullable=False)  # 'friend', 'team'
+    # pending, accepted, declined
+    status = db.Column(db.String(32), nullable=False, default='pending')
+
+    # Только для приглашения в команду
+    team_id = db.Column(UUID(as_uuid=True),
+                        db.ForeignKey('teams.id'), nullable=True)
+
+    created_at = db.Column(db.DateTime, default=func.now())
+    updated_at = db.Column(
+        db.DateTime, default=func.now(), onupdate=func.now())
+
+    from_user = db.relationship(
+        'User', back_populates='sent_requests', foreign_keys=[from_user_id])
+    to_user = db.relationship(
+        'User', back_populates='received_requests', foreign_keys=[to_user_id])
+    team = db.relationship(
+        'Team', back_populates='requests', foreign_keys=[team_id])
+
+
+class TokenBlocklist(db.Model):
+    __tablename__ = 'token_blocklist'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    jti = db.Column(db.String(36), nullable=False, unique=True)
+    # "access" or "refresh"
+    token_type = db.Column(db.String(10), nullable=False)
+    user_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=func.now())
+    expires = db.Column(db.DateTime, nullable=False)
+
+    user = db.relationship("User", lazy="joined")
+
+# end of user_models.py
+

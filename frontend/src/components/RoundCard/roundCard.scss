@@ -1,0 +1,69 @@
+@import url("../../fonts.scss");
+
+.modal .round-card {
+  width: calc((100% - 30px * 3) / 4);
+}
+
+.round-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: roboto-b;
+  width: calc((100% - 30px * 6) / 7);
+  aspect-ratio: 1;
+
+  @media (max-width: 1284px) {
+    width: calc((100% - 30px * 4) / 5);
+  }
+  @media (max-width: 768px) {
+    width: calc((100% - 30px * 2) / 3);
+  }
+
+  &.selected {
+    border: 2px solid #ff4e53;
+    background-color: #3a3535;
+  }
+
+  &__avatar {
+    // width: calc((100% - 20px * 5) / 6);
+    width: 100%;
+    aspect-ratio: 1;
+    // height: 64px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  &__name {
+    margin-top: 0.8rem;
+    font-size: clamp(12px, 2vw, 16px);
+    overflow: hidden;
+    max-width: 100%;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    // text-align: center;
+    // color: white;
+  }
+
+  &__actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.8rem;
+    width: 100%;
+  }
+
+  &__button {
+    // width: calc((100% - 20px * 7) / 8);
+    padding: 0.3rem 0.6rem;
+    border: none;
+    border-radius: 4px;
+    background-color: #ff4e53;
+    color: white;
+    cursor: pointer;
+
+    &:hover {
+      // background-color: #ff4e53;
+      opacity: 0.7;
+    }
+  }
+}

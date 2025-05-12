@@ -1,0 +1,75 @@
+@import url("../../fonts.scss");
+
+.home {
+  /* margin-top: clamp(60px, 9vw, 110px); */
+}
+.home__intro {
+  background-image: linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.9)),
+    url("../../images/bg_home_intro.png");
+  padding-top: clamp(60px, 9vw, 110px);
+  padding-bottom: clamp(80px, 9vw, 110px);
+  background-size: cover;
+  background-position: center;
+  overflow: hidden;
+  background-repeat: no-repeat;
+  /* position: relative; */
+  mask-image: linear-gradient(
+      to top,
+      rgba(0, 0, 0, 0) 0%,
+      rgba(0, 0, 0, 0.9) 20%,
+      /* rgba(0, 0, 0, 1) 40%, */
+      /* rgba(0, 0, 0, 1) 60%, */
+      rgba(0, 0, 0, 0.9) 80%,
+      rgba(0, 0, 0, 0) 100%
+    ),
+    linear-gradient(
+      to left,
+      rgba(0, 0, 0, 0) 0%,
+      rgba(0, 0, 0, 0.9) 20%,
+      /* rgba(0, 0, 0, 1) 40%, */
+      /* rgba(0, 0, 0, 1) 60%, */
+      rgba(0, 0, 0, 0.9) 80%,
+      rgba(0, 0, 0, 0) 100%
+    );
+  mask-composite: intersect;
+}
+
+/* .home__intro::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+
+  box-shadow:
+    inset 0 0 100px 50px rgb(20, 20, 20); 
+} */
+
+// .home__title,
+// .home__description {
+//   // position: relative;
+//   // z-index: 2;
+// }
+
+.home__title {
+  font-family: roboto-b;
+  font-size: clamp(32px, 5vw, 68px);
+
+  text-align: center;
+  text-shadow: 0 0 70px #ff4e53, 0 0 15px #ff4e53;
+  margin-bottom: clamp(20px, 3vw, 40px);
+}
+.home__description {
+  padding: 0 19%;
+  line-height: 140%;
+  font-size: clamp(12px, 1.2vw, 18px);
+  text-align: center;
+  font-family: roboto-r;
+
+  @media (max-width: 768px) {
+    padding: 0 10%;
+  }
+}
+.home__highlight {
+  color: #ff4e53;
+}
