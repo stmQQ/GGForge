@@ -11,6 +11,7 @@ class Match(db.Model):
     format = db.Column(db.String(8), nullable=False)  # bo1/bo3...
     # upcoming/ongoing/completed
     status = db.Column(db.String(16), nullable=False)
+    number = db.Column(db.String(4))
     scheduled_time = db.Column(db.DateTime)
     is_playoff = db.Column(db.Boolean, default=False, nullable=False)
 

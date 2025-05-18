@@ -2,7 +2,7 @@ from uuid import UUID
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 from app.extensions import db
-from app.models import Tournament, User, Game, GroupStage, PlayoffStage, PrizeTable, Match, Map, Group, PlayoffStageMatch, Team, PrizeTableRow, GroupRow
+from app.models import Tournament, User, Game, GroupStage, PlayoffStage, PrizeTable, Match, Map, Group, PlayoffStageMatch, Team, PrizeTableRow, GroupRow, ScheduledTournament
 from datetime import datetime, UTC
 import math
 import random
@@ -243,7 +243,6 @@ def create_tournament(
     game_id: UUID,
     creator_id: UUID,
     start_time: datetime,
-    type_: str,
     max_participants: int = 32,
     prize_fund: float = None,
     status: str = "setup",
@@ -288,14 +287,10 @@ def create_tournament(
     if not creator:
         raise ValueError("Creator not found")
 
-    # Validate parameters
-    if type_ not in ["solo", "team"]:
-        raise ValueError("Tournament type must be 'solo' or 'team'")
-
     if max_participants < 2:
         raise ValueError("Tournament must allow at least 2 participants")
 
-    if status not in ["open", "active", "completed", "canceled"]:
+    if status not in ["open", "active", "completed", "cancelled"]:
         raise ValueError("Invalid tournament status")
 
     if has_group_stage:
@@ -325,7 +320,7 @@ def create_tournament(
         start_time=start_time,
         max_players=max_participants,
         prize_fund=str(prize_fund) if prize_fund is not None else "0",
-        type=type_,
+        type=game.type,
         status=status,
         match_format=format_,
         final_format=final_format_
@@ -360,24 +355,38 @@ def create_tournament(
                 winners_bracket_qualified=playoff_participants_count_per_group
             )
             tournament.group_stage = group_stage
+            create_group_stage_matches(
+                tournament.id, participants=group_participants, format_=tournament.match_format)
         # Create playoff stage if enabled
         if has_playoff:
+            match_start_idx = 1
             if has_group_stage:
                 playoff_participants_count_per_group = num_groups * \
                     group_stage.winners_bracket_qualified
+                match_start_idx = int(num_groups * max_participants_per_group *
+                                      (max_participants_per_group - 1) / 2 + 1)
             else:
                 playoff_participants_count_per_group = max_participants
             winner_bracket_participants = [
                 None] * playoff_participants_count_per_group
             playoff_stage = generate_single_elimination_bracket(
                 tournament_id=tournament.id,
-                participants=winner_bracket_participants
+                participants=winner_bracket_participants,
+                match_start_idx=match_start_idx
             )
             tournament.playoff_stage = playoff_stage
         # Schedule tournament start
         if status == "open":
-            from app.ascheduler_tasks import schedule_tournament_start
-            schedule_tournament_start(tournament.id, start_time)
+            from app.apscheduler_tasks import schedule_tournament_start
+            job_id = f"tournament_start_{tournament.id}"
+            schedule_tournament_start(tournament.id, start_time, job_id)
+            # Сохраняем запись о запланированном турнире
+            scheduled = ScheduledTournament(
+                tournament_id=tournament.id,
+                start_time=start_time,
+                job_id=job_id
+            )
+        db.session.add(scheduled)
         return tournament
 
     except IntegrityError as e:
@@ -388,7 +397,7 @@ def create_tournament(
         raise e
 
 
-def create_match(tournament_id: UUID, participant1_id: UUID = None, participant2_id: UUID = None, group_id: UUID = None, playoff_match_id: UUID = None, type: str = None, format: str = "bo1"):
+def create_match(tournament_id: UUID, participant1_id: UUID = None, participant2_id: UUID = None, group_id: UUID = None, playoff_match_id: UUID = None, type: str = None, format: str = "bo1", number: int = 1):
     """
     Create a new match in a tournament.
 
@@ -449,7 +458,8 @@ def create_match(tournament_id: UUID, participant1_id: UUID = None, participant2
         type=type,
         format=format,
         status="scheduled",
-        is_playoff=playoff_match_id is not None
+        is_playoff=playoff_match_id is not None,
+        number=number
     )
 
     db.session.add(match)
@@ -500,7 +510,7 @@ def update_match_results(tournament_id: UUID, match_id: UUID, winner_id: UUID = 
         # Handle status
         if status:
             valid_statuses = ["scheduled", "ongoing",
-                              "completed", "cancelled", "tech_win"]
+                              "completed", "cancelled"]
             if status not in valid_statuses:
                 raise ValueError(
                     f"Invalid match status. Must be one of {valid_statuses}")
@@ -614,38 +624,55 @@ def start_tournament(tournament_id: UUID):
     Raises:
         ValueError: If tournament, participants, or match setup is invalid.
     """
-    tournament = get_tournament(tournament_id)
-    if tournament.status != "open":
-        raise ValueError("Tournament is not in open status")
+    from main import app
+    with app.app_context():
+        tournament = get_tournament(tournament_id)
+        if tournament.status != "open":
+            raise ValueError("Tournament is not in open status")
 
-    total_participants = len(
-        tournament.participants) if tournament.type == 'solo' else len(tournament.teams)
-    if total_participants < 2:
-        raise ValueError("Tournament requires at least 2 participants")
+        total_participants = len(
+            tournament.participants) if tournament.type == 'solo' else len(tournament.teams)
+        if total_participants < 2:
+            tournament.status = 'cancelled'
+            db.session.add(tournament)
+            try:
+                scheduled = ScheduledTournament.query.filter_by(
+                    tournament_id=tournament_id).first()
+                if scheduled:
+                    db.session.delete(scheduled)
+            except:
+                pass
+            db.session.commit()
+            raise ValueError("Tournament requires at least 2 participants")
 
-    try:
-        # Set tournament status and start time
-        tournament.status = "ongoing"
-        tournament.start_time = datetime.now(UTC)
-        db.session.add(tournament)
+        try:
+            scheduled = ScheduledTournament.query.filter_by(
+                tournament_id=tournament_id).first()
+            if scheduled:
+                db.session.delete(scheduled)
 
-        # Assign participants
-        if tournament.group_stage:
-            assign_participants_to_groups(tournament_id)
-            create_group_stage_matches(
-                tournament_id, format_=tournament.match_format)
-        else:
-            assign_participants_to_playoff_stage(tournament_id)
-            # Validate match setup
-            if tournament.playoff_stage:
-                validate_match_setup(tournament_id)
+            # Set tournament status and start time
+            tournament.status = "ongoing"
+            tournament.start_time = datetime.now(UTC)
+            db.session.add(tournament)
 
-        db.session.commit()
-        return tournament
+            # Assign participants
+            if tournament.group_stage:
+                assign_participants_to_groups(tournament_id)
+                # Новое: назначение участников матчам
+                assign_participants_to_group_matches(tournament_id)
+            else:
+                assign_participants_to_playoff_stage(tournament_id)
+                # Validate match setup
+                if tournament.playoff_stage:
+                    validate_match_setup(tournament_id)
 
-    except Exception as e:
-        db.session.rollback()
-        raise ValueError(f"Failed to start tournament: {str(e)}")
+            db.session.commit()
+            return tournament
+
+        except Exception as e:
+            db.session.rollback()
+            raise ValueError(f"Failed to start tournament: {str(e)}")
 
 
 def validate_match_setup(tournament_id: UUID):
@@ -670,13 +697,13 @@ def validate_match_setup(tournament_id: UUID):
             db.session.add(match.match)
         elif match.match.participant1_id and not match.match.participant2_id:
             match.match.winner_id = match.match.participant1_id
-            match.match.status = "tech_win"
+            match.match.status = "cancelled"
             db.session.add(match.match)
             update_next_match_participants(
                 tournament_id, match.match.id, match.match.winner_id)
         elif match.match.participant2_id and not match.match.participant1_id:
             match.match.winner_id = match.match.participant2_id
-            match.match.status = "tech_win"
+            match.match.status = "cancelled"
             db.session.add(match.match)
             update_next_match_participants(
                 tournament_id, match.match.id, match.match.winner_id)
@@ -699,7 +726,7 @@ def complete_group_stage(tournament_id: UUID):
     group_stage = tournament.group_stage
     for group in group_stage.groups:
         for match in group.matches:
-            if match.status != "completed":
+            if match.status != "completed" and match.status != 'cancelled':
                 raise ValueError("Not all group stage matches are completed")
 
     # Assign participants to playoff stage
@@ -729,7 +756,7 @@ def complete_tournament(tournament_id: UUID):
     if tournament.status != "ongoing":
         raise ValueError("Tournament is not ongoing")
 
-    if any(match.status not in ["completed", "tech_win", "cancelled"] for match in tournament.matches):
+    if any(match.status not in ["completed", "cancelled"] for match in tournament.matches):
         raise ValueError("Not all matches are completed")
 
     if not tournament.playoff_stage:
@@ -956,7 +983,7 @@ def make_group(groupstage_id: UUID, letter: str, max_participants: int, particip
     return group
 
 
-def generate_single_elimination_bracket(tournament_id: UUID, participants: list[UUID]):
+def generate_single_elimination_bracket(tournament_id: UUID, participants: list[UUID], match_start_idx: int = 1):
     """
     Generate a single-elimination playoff bracket for a tournament with placeholder participants.
 
@@ -1000,8 +1027,10 @@ def generate_single_elimination_bracket(tournament_id: UUID, participants: list[
             participant2_id=None,
             type="playoff",
             format='bo1' if tournament.match_format == 'bo2' else tournament.match_format,
-            status="scheduled"
+            status="scheduled",
+            number=match_start_idx
         )
+        match_start_idx += 1
         db.session.add(match)
         db.session.flush()
         playoff_match = PlayoffStageMatch(
@@ -1020,8 +1049,10 @@ def generate_single_elimination_bracket(tournament_id: UUID, participants: list[
                 tournament_id=tournament_id,
                 type="playoff",
                 format='bo1' if tournament.match_format == 'bo2' else tournament.match_format if round_num < rounds else tournament.final_format,
-                status="scheduled"
+                status="scheduled",
+                number=match_start_idx
             )
+            match_start_idx += 1
             db.session.add(match)
             db.session.flush()
             playoff_match = PlayoffStageMatch(
@@ -1202,7 +1233,7 @@ def complete_match(tournament_id: UUID, match_id: UUID, winner_id: UUID = None):
             raise ValueError("Group stage matches must have both participants")
         winner_id = match.participant1_id or match.participant2_id
         match.winner_id = winner_id
-        match.status = "tech_win"
+        match.status = "cancelled"
     else:
         # Normal case with two participants
         if match.format == "bo2" and winner_id is None:
@@ -1270,7 +1301,7 @@ def complete_match(tournament_id: UUID, match_id: UUID, winner_id: UUID = None):
                 f"Failed to update GroupRow statistics or sort standings: {str(e)}")
     matches = Match.query.filter_by(group_id=match.group_id)
 
-    if all(m.status == 'completed' for m in matches):
+    if all(m.status == 'completed' or m.status == 'cancelled' for m in matches):
         complete_group_stage(tournament_id)
 
     # Update next match participants for playoff matches
@@ -1285,7 +1316,7 @@ def complete_match(tournament_id: UUID, match_id: UUID, winner_id: UUID = None):
         ).order_by(PlayoffStageMatch.round_number.desc()).first()
         if final_match and final_match.id == match.playoff_match.id:
             tournament = get_tournament(tournament_id)
-            if all(m.status in ["completed", "tech_win", "cancelled"] for m in tournament.matches):
+            if all(m.status in ["completed", "cancelled"] for m in tournament.matches):
                 complete_tournament(tournament_id)
 
     try:
@@ -1344,16 +1375,16 @@ def update_next_match_participants(tournament_id: UUID, match_id: UUID, winner_i
 
             # Check if next match can be auto-completed
             parallel_match = next_winner_match.depends_on_match_1 if next_winner_match.depends_on_match_2_id == playoff_match.id else next_winner_match.depends_on_match_2
-            if parallel_match and parallel_match.match.status in ["cancelled", "tech_win"]:
+            if parallel_match and parallel_match.match.status == "cancelled":
                 if next_match.participant1_id and not next_match.participant2_id:
                     next_match.winner_id = next_match.participant1_id
-                    next_match.status = "tech_win"
+                    next_match.status = "cancelled"
                     db.session.add(next_match)
                     update_next_match_participants(
                         tournament_id, next_match.id, next_match.winner_id)
                 elif next_match.participant2_id and not next_match.participant1_id:
                     next_match.winner_id = next_match.participant2_id
-                    next_match.status = "tech_win"
+                    next_match.status = "cancelled"
                     db.session.add(next_match)
                     update_next_match_participants(
                         tournament_id, next_match.id, next_match.winner_id)
@@ -1572,6 +1603,8 @@ def assign_participants_to_playoff_stage(tournament_id: UUID):
     else:
         participants = tournament.teams if tournament.type == "team" else tournament.participants
 
+    print("Participants: ", participants)
+
     if len(participants) < 2:
         raise ValueError("Insufficient participants for playoff stage")
 
@@ -1591,12 +1624,14 @@ def assign_participants_to_playoff_stage(tournament_id: UUID):
             round_number="1",
             bracket="winner"
         ).order_by(PlayoffStageMatch.id).all()
+        print("FRM", first_round_matches)
 
         # Distribute participants
         participant_index = 0
         for match in first_round_matches:
             match.match.participant1_id = participants[participant_index].id if participant_index < len(
                 participants) else None
+            print(match.match.participant1_id)
             participant_index += 1
             match.match.participant2_id = participants[participant_index].id if participant_index < len(
                 participants) else None
@@ -1610,13 +1645,13 @@ def assign_participants_to_playoff_stage(tournament_id: UUID):
                 db.session.add(match.match)
             elif match.match.participant1_id and not match.match.participant2_id:
                 match.match.winner_id = match.match.participant1_id
-                match.match.status = "tech_win"
+                match.match.status = "cancelled"
                 db.session.add(match.match)
                 update_next_match_participants(
                     tournament_id, match.match.id, match.match.winner_id)
             elif match.match.participant2_id and not match.match.participant1_id:
                 match.match.winner_id = match.match.participant2_id
-                match.match.status = "tech_win"
+                match.match.status = "cancelled"
                 db.session.add(match.match)
                 update_next_match_participants(
                     tournament_id, match.match.id, match.match.winner_id)
@@ -1750,7 +1785,7 @@ def reset_tournament(tournament_id: UUID):
 
         # Remove scheduled task
         try:
-            from app.ascheduler_tasks import scheduler
+            from apscheduler_tasks import scheduler
             from apscheduler.jobstores.base import JobLookupError
             scheduler.remove_job(f"tournament_start_{tournament_id}")
         except JobLookupError:
@@ -1826,18 +1861,21 @@ def start_match(tournament_id: UUID, match_id: UUID):
     return match
 
 
-def create_group_stage_matches(tournament_id: UUID, format_: str):
+def create_group_stage_matches(tournament_id: UUID, participants, format_: str):
     """
-    Create matches for the group stage of a tournament, generating round-robin matches for each group.
+    Create matches for the group stage of a tournament, generating round-robin matches for each group
+    with no participants assigned.
 
     Args:
         tournament_id: The UUID of the tournament.
+        participants: Ignored (kept for compatibility).
+        format_: The match format (e.g., 'bo1', 'bo3').
 
     Returns:
         list: List of created Match objects.
 
     Raises:
-        ValueError: If tournament, group stage, groups, or participants are invalid.
+        ValueError: If tournament, group stage, or groups are invalid.
     """
     tournament = get_tournament(tournament_id)
 
@@ -1853,31 +1891,28 @@ def create_group_stage_matches(tournament_id: UUID, format_: str):
         raise ValueError("No groups found in group stage")
 
     created_matches = []
+    match_number = 1
 
     try:
-        print(format_)
         for group in groups:
-            # Get participants in the group
-            participants = group.teams if tournament.type == "team" else group.participants
-            if len(participants) < 2:
+            # Количество матчей для round-robin: C(n,2) = n*(n-1)/2, где n = max_participants
+            max_participants = group.max_participants
+            num_matches = (max_participants * (max_participants - 1)) // 2
+            if num_matches < 1:
                 continue
 
-            # Generate round-robin matches: each participant vs. each other participant
-            for i in range(len(participants)):
-                for j in range(i + 1, len(participants)):
-                    participant1 = participants[i]
-                    participant2 = participants[j]
-
-                    # Create match
-                    match = create_match(
-                        tournament_id=tournament_id,
-                        participant1_id=participant1.id,
-                        participant2_id=participant2.id,
-                        group_id=group.id,
-                        type="group",
-                        format=format_
-                    )
-                    created_matches.append(match)
+            for _ in range(num_matches):
+                match = create_match(
+                    tournament_id=tournament_id,
+                    participant1_id=None,  # Без участников
+                    participant2_id=None,  # Без участников
+                    group_id=group.id,
+                    type="group",
+                    format=format_,
+                    number=match_number
+                )
+                match_number += 1
+                created_matches.append(match)
 
         db.session.commit()
         return created_matches
@@ -1885,3 +1920,73 @@ def create_group_stage_matches(tournament_id: UUID, format_: str):
     except Exception as e:
         db.session.rollback()
         raise ValueError(f"Failed to create group stage matches: {str(e)}")
+
+
+def assign_participants_to_group_matches(tournament_id: UUID):
+    """
+    Assign participants to group stage matches in a round-robin format.
+
+    Args:
+        tournament_id: The UUID of the tournament.
+
+    Raises:
+        ValueError: If tournament, group stage, groups, or matches are invalid.
+    """
+    tournament = get_tournament(tournament_id)
+
+    if not tournament.group_stage:
+        raise ValueError("Tournament does not have a group stage")
+
+    group_stage = tournament.group_stage
+    if not group_stage:
+        raise ValueError("Group stage not found")
+
+    groups = group_stage.groups
+    if not groups:
+        raise ValueError("No groups found in group stage")
+
+    try:
+        for group in groups:
+            # Получаем участников группы
+            participants = group.teams if tournament.type == "team" else group.participants
+            if len(participants) < 2:
+                continue
+
+            # Перемешиваем участников для случайного распределения
+            participants = list(participants)
+            random.shuffle(participants)
+
+            # Получаем все матчи группы
+            matches = Match.query.filter_by(group_id=group.id).all()
+            if not matches:
+                raise ValueError(f"No matches found for group {group.letter}")
+
+            # Рассчитываем необходимое количество матчей
+            expected_matches = (len(participants) *
+                                (len(participants) - 1)) // 2
+            if len(matches) < expected_matches:
+                raise ValueError(
+                    f"Insufficient matches for group {group.letter}")
+            for m in matches[expected_matches:]:
+                m.status = 'cancelled'
+
+            # Назначаем участников матчам в формате round-robin
+            match_index = 0
+            for i in range(len(participants)):
+                for j in range(i + 1, len(participants)):
+                    if match_index >= len(matches):
+                        break
+                    match = matches[match_index]
+                    match.participant1_id = participants[i].id
+                    match.participant2_id = participants[j].id
+                    print(match.participant1_id, match.participant2_id)
+                    if not match.participant2_id and not match.participant1_id:
+                        match.status = 'cancelled'
+                    db.session.add(match)
+                    match_index += 1
+
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        raise ValueError(
+            f"Failed to assign participants to group matches: {str(e)}")

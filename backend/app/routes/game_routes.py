@@ -23,13 +23,15 @@ def is_admin_user():
     return None
 
 
-@game_bp.route('/', methods=['GET'])
+@game_bp.route('/', methods=['GET', 'OPTIONS'])
 def get_games():
     """Retrieve all games."""
+    if request.method == 'OPTIONS':
+        return '', 204
     games = get_all_games()
-    print('I am here')
     game_schema = GameSchema(many=True, only=(
         'id', 'title', 'image_path', 'logo_path', 'service_name'))
+    print(game_schema.dump(games))
     return game_schema.dump(games), 200
 
 
@@ -66,9 +68,11 @@ def add_game():
         return jsonify({'msg': 'Игра с таким названием уже существует'}), 409
 
 
-@game_bp.route('/<uuid:game_id>', methods=['GET'])
-def get_game(game_id: UUID):
+@game_bp.route('/<uuid:game_id>', methods=['GET', 'OPTIONS'])
+def get_game_route(game_id: UUID):
     """Retrieve a specific game by ID."""
+    if request.method == 'OPTIONS':
+        return '', 204
     game = get_game(game_id)
     game_schema = GameSchema()
     return game_schema.dump(game), 200
@@ -76,7 +80,7 @@ def get_game(game_id: UUID):
 
 @game_bp.route('/<uuid:game_id>', methods=['DELETE'])
 @jwt_required()
-def delete_game(game_id: UUID):
+def delete_game_route(game_id: UUID):
     """Delete a game by ID (admin-only)."""
     admin_check = is_admin_user()
     if admin_check:

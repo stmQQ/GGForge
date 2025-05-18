@@ -11,6 +11,7 @@ from app.services.team_service import (
     kick_member, get_user_team_invites
 )
 from app.schemas import TeamSchema, UserRequestSchema, UserSchema
+from app.services.user_service import save_image
 
 team_bp = Blueprint('team_bp', __name__, url_prefix='/api/teams')
 
@@ -32,47 +33,67 @@ def is_team_leader_or_admin(team_id: UUID):
     return None
 
 
-@team_bp.route('/', methods=['POST'])
-@jwt_required()
+@team_bp.route('/', methods=['POST', 'OPTIONS'])
 def create_team_route():
     """Create a new team."""
-    user_id = get_jwt_identity()
-    try:
-        user_id_uuid = UUID(user_id)
-    except ValueError:
-        return jsonify({'msg': 'Некорректный формат user_id'}), 400
+    if request.method == 'OPTIONS':
+        return '', 204
 
-    user = User.query.get(user_id_uuid)
-    if not user:
-        return jsonify({'msg': 'Пользователь не найден'}), 404
+    @jwt_required()
+    def handle_post():
+        user_id = get_jwt_identity()
+        try:
+            user_id_uuid = UUID(user_id)
+        except ValueError:
+            return jsonify({'msg': 'Некорректный формат user_id'}), 400
 
-    data = request.get_json()
-    if not data or 'title' not in data:
-        return jsonify({'msg': 'Необходимо указать title'}), 400
+        user = User.query.get(user_id_uuid)
+        if not user:
+            return jsonify({'msg': 'Пользователь не найден'}), 404
 
-    try:
-        team = create_team(
-            title=data.get('title'),
-            description=data.get('description'),
-            logo_path=data.get('logo_path')
-        )
-        db.session.commit()
-        team_schema = TeamSchema(
-            only=('id', 'title', 'description', 'leader_id', 'logo_path'))
-        return jsonify({
-            'msg': 'Команда успешно создана',
-            'team': team_schema.dump(team)
-        }), 201
-    except ValueError as e:
-        return jsonify({'msg': str(e)}), 400
-    except IntegrityError:
-        db.session.rollback()
-        return jsonify({'msg': 'Команда с таким названием уже существует'}), 409
+        # Обработка multipart/form-data
+        title = request.form.get('title')
+        description = request.form.get('description')
+        logo_file = request.files.get('logo_path')
+
+        if not title:
+            return jsonify({'msg': 'Необходимо указать title'}), 400
+
+        logo_path = None
+        if logo_file:
+            try:
+                logo_path = save_image(
+                    logo_file, 'team_logo', user_id=user_id_uuid)
+            except ValueError as e:
+                return jsonify({'msg': str(e)}), 400
+
+        try:
+            team = create_team(
+                title=title,
+                description=description,
+                logo_path=logo_path
+            )
+            db.session.commit()
+            team_schema = TeamSchema(
+                only=('id', 'title', 'description', 'leader_id', 'logo_path'))
+            return jsonify({
+                'msg': 'Команда успешно создана',
+                'team': team_schema.dump(team)
+            }), 201
+        except ValueError as e:
+            return jsonify({'msg': str(e)}), 400
+        except IntegrityError:
+            db.session.rollback()
+            return jsonify({'msg': 'Команда с таким названием уже существует'}), 409
+
+    return handle_post()
 
 
-@team_bp.route('/', methods=['GET'])
+@team_bp.route('/', methods=['GET', 'OPTIONS'])
 def get_teams_route():
     """Get a paginated list of all teams."""
+    if request.method == 'OPTIONS':
+        return '', 204
     try:
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', 10))

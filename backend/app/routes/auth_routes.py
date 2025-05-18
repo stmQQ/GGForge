@@ -1,3 +1,4 @@
+from uuid import UUID
 from flask import Blueprint, request, jsonify, current_app
 from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
@@ -10,29 +11,32 @@ from datetime import timedelta, datetime, UTC
 
 from app.extensions import db, jwt
 from app.models import User, TokenBlocklist
-from app.services.user_service import create_user, update_user, save_avatar
+from app.services.user_service import create_user, update_user, save_image
 from app.schemas import UserSchema  # Import the UserSchema
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
+
 @auth_bp.route('/register', methods=['POST'])
 def register():
+    print(request.content_type)
     name = request.form.get('name')
     email = request.form.get('email')
     password = request.form.get('password')
     avatar_file = request.files.get('avatar')
 
     if not name or not email or not password:
+        print(name, email, password)
         return jsonify({'msg': 'Заполните все поля'}), 400
 
-    avatar_url = save_avatar(
-        avatar_file) if avatar_file else "/static/avatars/default.png"
+    avatar_url = save_image(
+        avatar_file, 'avatar') if avatar_file else "/static/avatars/default.png"
 
     try:
         user = create_user(name=name, email=email,
                            password=password, avatar=avatar_url)
         if avatar_file:
-            new_avatar_url = save_avatar(avatar_file, user_id=user.id)
+            new_avatar_url = save_image(avatar_file, 'avatar', user_id=user.id)
             user.avatar = new_avatar_url
             db.session.commit()
     except IntegrityError:
@@ -49,6 +53,7 @@ def register():
         'refresh_token': refresh_token,
         'user': user_schema.dump(user)
     }, 201
+
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
@@ -80,6 +85,7 @@ def login():
         'user': user_schema.dump(user)
     }, 200
 
+
 @auth_bp.route('/refresh', methods=['POST'])
 @jwt_required(refresh=True)
 def refresh():
@@ -97,11 +103,13 @@ def refresh():
         'user': user_schema.dump(user)
     }, 200
 
+
 @jwt.token_in_blocklist_loader
 def is_token_revoked(jwt_header, jwt_payload):
     jti = jwt_payload["jti"]
     token = db.session.query(TokenBlocklist).filter_by(jti=jti).first()
     return token is not None
+
 
 @auth_bp.route('/logout', methods=['POST'])
 @jwt_required()
@@ -109,6 +117,8 @@ def logout():
     jti = get_jwt()["jti"]
     token_type = get_jwt()["type"]
     user_id = get_jwt_identity()
+    user = User.query.get(UUID(user_id))
+    user.is_online = False
 
     expires = datetime.fromtimestamp(get_jwt()["exp"], tz=UTC)
     blocked_token = TokenBlocklist(
@@ -117,6 +127,7 @@ def logout():
         user_id=user_id,
         expires=expires
     )
+    db.session.add(user)
     db.session.add(blocked_token)
     db.session.commit()
 

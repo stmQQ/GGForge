@@ -1,7 +1,7 @@
 import uuid
 from app.models import Match, PlayoffStageMatch, Map
 from app.extensions import db
-from marshmallow import fields, validate
+from marshmallow import fields, post_dump, validate
 from flask_marshmallow import Marshmallow
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
 from marshmallow import fields
@@ -43,7 +43,7 @@ class GameAccountSchema(SQLAlchemyAutoSchema):
         load_instance = True
 
     user = fields.Nested('UserSchema', only=('id', 'name'))
-    game = fields.Nested('GameSchema', only=('id', 'title'))
+    game = fields.Nested('GameSchema', only=('id', 'title', 'logo_path'))
     connection = fields.Nested(ConnectionSchema, only=(
         'id', 'service_name', 'external_user_url'))
 
@@ -88,29 +88,30 @@ class UserSchema(SQLAlchemyAutoSchema):
         load_instance = True
 
     friends = fields.List(fields.Nested(
-        lambda: UserSchema(only=('id', 'name'))))
+        lambda: UserSchema(only=('id', 'name', 'avatar'))))
     game_accounts = fields.Nested(
-        GameAccountSchema, many=True, only=('id', 'game_id'))
+        GameAccountSchema, many=True, only=('id', 'game_id', 'game.logo_path'))
     connections = fields.Nested(
-        ConnectionSchema, many=True, only=('id', 'service_name'))
+        ConnectionSchema, many=True, only=('id', 'service_name', 'external_user_url'))
     member_teams = fields.List(fields.Nested(
-        'TeamSchema', only=('id', 'title')))
-    led_teams = fields.List(fields.Nested('TeamSchema', only=('id', 'title')))
+        'TeamSchema', only=('id', 'title', 'logo_path')))
+    led_teams = fields.List(fields.Nested(
+        'TeamSchema', only=('id', 'title', 'logo_path')))
     created_tournaments = fields.List(fields.Nested(
-        'TournamentSchema', only=('id', 'title')))
+        'TournamentSchema', only=('id', 'title', 'banner_url', 'status', 'start_time', 'prize_fund')))
     achievements = fields.List(fields.Nested(
         'AchievementSchema', only=('id', 'title')))
     participated_tournaments = fields.List(
-        fields.Nested('TournamentSchema', only=('id', 'title')))
-    groups = fields.List(fields.Nested('GroupSchema', only=('id', 'title')))
+        fields.Nested('TournamentSchema', only=('id', 'title', 'banner_url', 'status', 'start_time', 'prize_fund')))
+    groups = fields.List(fields.Nested('GroupSchema', only=('id', 'letter')))
     group_rows = fields.List(fields.Nested('GroupRowSchema', only=('id',)))
     prizetable_rows = fields.List(fields.Nested(
         'PrizeTableRowSchema', only=('id',)))
     support_tokens = fields.Nested(SupportTokenSchema, many=True)
     sent_requests = fields.Nested(
-        UserRequestSchema, many=True, only=('id', 'to_user'))
+        UserRequestSchema, many=True, only=('id', 'to_user', 'status'))
     received_requests = fields.Nested(
-        UserRequestSchema, many=True, only=('id', 'from_user'))
+        UserRequestSchema, many=True, only=('id', 'from_user', 'status'))
 
 
 class GroupRowSchema(SQLAlchemyAutoSchema):
@@ -119,8 +120,11 @@ class GroupRowSchema(SQLAlchemyAutoSchema):
         include_fk = True
         load_instance = True
 
-    user = fields.Nested('UserSchema', only=('id', 'name'), allow_none=True)
-    team = fields.Nested('TeamSchema', only=('id', 'title'), allow_none=True)
+    user = fields.Nested('UserSchema', only=(
+        'id', 'name', 'avatar'), allow_none=True)
+    team = fields.Nested('TeamSchema', only=(
+        'id', 'title', 'logo_path'), allow_none=True)
+    place = fields.Integer()  # Атрибут для сортировки
 
 
 class GroupSchema(SQLAlchemyAutoSchema):
@@ -132,10 +136,16 @@ class GroupSchema(SQLAlchemyAutoSchema):
     participants = fields.List(fields.Nested(
         'UserSchema', only=('id', 'name')))
     teams = fields.List(fields.Nested('TeamSchema', only=('id', 'title')))
-    rows = fields.List(fields.Nested(
-        GroupRowSchema, only=('id', 'place', 'user_id', 'team_id')))
-    matches = fields.List(fields.Nested('MatchSchema', only=(
-        'id', 'participant1_id', 'participant2_id', 'maps')))
+    rows = fields.List(fields.Nested('GroupRowSchema'))
+    matches = fields.List(fields.Nested('MatchSchema', exclude=('group',)))
+
+    @post_dump
+    def sort_rows_by_place(self, data, **kwargs):
+        # Сортируем rows по атрибуту place
+        if 'rows' in data:
+            data['rows'] = sorted(
+                data['rows'], key=lambda row: row.get('place', float('inf')))
+        return data
 
 
 class GroupStageSchema(SQLAlchemyAutoSchema):
@@ -154,8 +164,10 @@ class PrizeTableRowSchema(SQLAlchemyAutoSchema):
         include_fk = True
         load_instance = True
 
-    user = fields.Nested('UserSchema', only=('id', 'name'), allow_none=True)
-    team = fields.Nested('TeamSchema', only=('id', 'title'), allow_none=True)
+    user = fields.Nested('UserSchema', only=(
+        'id', 'name', 'avatar'), allow_none=True)
+    team = fields.Nested('TeamSchema', only=(
+        'id', 'title', 'logo_path'), allow_none=True)
 
 
 class PrizeTableSchema(SQLAlchemyAutoSchema):
@@ -184,14 +196,16 @@ class TournamentSchema(SQLAlchemyAutoSchema):
         load_instance = True
 
     game = fields.Nested('GameSchema', only=('id', 'title'))
-    creator = fields.Nested('UserSchema', only=('id', 'name'))
+    creator = fields.Nested('UserSchema', only=('id', 'name', 'avatar'))
     participants = fields.List(fields.Nested(
-        'UserSchema', only=('id', 'name')))
+        'UserSchema', only=('id', 'name', 'avatar')))
     teams = fields.List(fields.Nested('TeamSchema', only=('id', 'title')))
     matches = fields.List(fields.Nested('MatchSchema', only=('id', 'status')))
     group_stage = fields.Nested(GroupStageSchema, allow_none=True)
     playoff_stage = fields.Nested(PlayoffStageSchema, allow_none=True)
     prize_table = fields.Nested(PrizeTableSchema, allow_none=True)
+
+    start_time = fields.DateTime(format='iso')
 
 
 class TeamSchema(SQLAlchemyAutoSchema):
@@ -279,8 +293,6 @@ class MatchSchema(SQLAlchemyAutoSchema):
     status = fields.Str(required=True, validate=validate.Length(max=16))
     scheduled_time = fields.DateTime(allow_none=True)
     is_playoff = fields.Boolean(required=True)
-    participant1_id = fields.UUID(allow_none=True)
-    participant2_id = fields.UUID(allow_none=True)
     participant1_score = fields.Integer(dump_default=0)
     participant2_score = fields.Integer(dump_default=0)
     winner_id = fields.UUID(allow_none=True)
@@ -294,3 +306,7 @@ class MatchSchema(SQLAlchemyAutoSchema):
     playoff_match = fields.Nested(
         'PlayoffStageMatchSchema', exclude=('match',), dump_only=True)
     maps = fields.Nested('MapSchema', many=True, dump_only=True)
+    participant1 = fields.Nested('UserSchema', only=(
+        'id', 'name', 'avatar'), dump_only=True)
+    participant2 = fields.Nested('UserSchema', only=(
+        'id', 'name', 'avatar'), dump_only=True)

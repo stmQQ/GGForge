@@ -79,8 +79,6 @@ def get_user_profile(user_id):
     }
 
 
-UPLOAD_FOLDER = 'static/avatars'
-
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
 MAX_FILE_SIZE_MB = 2
 
@@ -90,8 +88,20 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
-def save_avatar(file_storage, user_id):
-    """Сохраняет аватар пользователя с проверками."""
+def save_image(file_storage, image_type, entity_id=None):
+    """Сохраняет изображение в указанную директорию с проверками.
+
+    Args:
+        file_storage: Объект файла (например, request.files['file']).
+        image_type: Тип изображения ('avatar', 'team_logo', 'tournament', 'general', 'game_image', 'game_logo').
+        entity_id: ID сущности (user_id, team_id, tournament_id), если требуется поддиректория.
+
+    Returns:
+        Относительный путь к сохранённому файлу (например, '/static/avatars/<user_id>/<uuid>.jpg').
+    """
+    if not file_storage:
+        raise ValueError('Файл не предоставлен')
+
     # Проверка расширения
     if not allowed_file(file_storage.filename):
         raise ValueError('Недопустимый формат файла')
@@ -103,24 +113,45 @@ def save_avatar(file_storage, user_id):
     if file_size_mb > MAX_FILE_SIZE_MB:
         raise ValueError('Файл слишком большой. Максимальный размер — 2MB')
 
-    ext = os.path.splitext(secure_filename(file_storage.filename))[1]
-    avatar_filename = f"{uuid.uuid4().hex}{ext}"
+    # Определение директории в зависимости от типа изображения
+    base_path = 'static'
+    sub_path = {
+        'avatar': f'avatars/{entity_id}' if entity_id else 'avatars',
+        'team_logo': f'team_logos/{entity_id}' if entity_id else 'team_logos',
+        'tournament': f'tournaments/{entity_id}' if entity_id else 'tournaments',
+        'general': 'general',
+        'game_image': 'games/images',
+        'game_logo': 'games/logos',
+    }.get(image_type)
+    if not sub_path:
+        raise ValueError('Недопустимый тип изображения')
 
-    save_dir = os.path.join(current_app.root_path, UPLOAD_FOLDER, str(user_id))
+    # Формирование имени файла
+    ext = os.path.splitext(secure_filename(file_storage.filename))[1]
+    filename = f"{uuid.uuid4().hex}{ext}"
+
+    # Создание директории
+    save_dir = os.path.join(current_app.root_path, base_path, sub_path)
     os.makedirs(save_dir, exist_ok=True)
 
-    save_path = os.path.join(save_dir, avatar_filename)
+    # Сохранение файла
+    save_path = os.path.join(save_dir, filename)
     file_storage.save(save_path)
 
-    return f"/{UPLOAD_FOLDER}/{user_id}/{avatar_filename}"
+    # Возвращаем относительный путь
+    return f"/{base_path}/{sub_path}/{filename}"
 
 
-def delete_avatar(avatar_path):
-    """Удаляет старый аватар, если он не дефолтный."""
-    if not avatar_path or 'default.png' in avatar_path:
-        return  # Нельзя удалять дефолтный аватар
+def delete_image(image_path):
+    """Удаляет изображение, если оно не дефолтное.
 
-    full_path = os.path.join(current_app.root_path, avatar_path.lstrip("/"))
+    Args:
+        image_path: Путь к файлу (например, '/static/avatars/<user_id>/<uuid>.jpg').
+    """
+    if not image_path or any(default in image_path for default in ['default.png', 'games/images', 'games/logos']):
+        return  # Нельзя удалять дефолтные изображения
+
+    full_path = os.path.join(current_app.root_path, image_path.lstrip("/"))
     if os.path.exists(full_path):
         os.remove(full_path)
 

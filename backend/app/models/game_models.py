@@ -12,6 +12,7 @@ class Game(db.Model):
     image_path = db.Column(db.String(256), nullable=False, unique=True)
     logo_path = db.Column(db.String(256), nullable=False, unique=True)
     service_name = db.Column(db.String(32), nullable=False)
+    type = db.Column(db.String(8))  # solo/team
     tournaments = db.relationship(
         'Tournament', back_populates='game', lazy='selectin')
     achievements = db.relationship(

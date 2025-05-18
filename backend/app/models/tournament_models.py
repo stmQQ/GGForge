@@ -14,11 +14,13 @@ class Tournament(db.Model):
     max_players = db.Column(db.Integer, nullable=False)
     # solo / team
     type = db.Column(db.String(16), nullable=False)
-    # open, ongoing, completed, canceled
+    # open, ongoing, completed, cancelled
     status = db.Column(db.String(16), nullable=False, default='open')
     banner_url = db.Column(db.String(128))
     match_format = db.Column(db.String(8))
     final_format = db.Column(db.String(8))
+    description = db.Column(db.Text)
+    contact = db.Column(db.String(32))
 
     game_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
         'games.id'), nullable=False)
@@ -154,3 +156,19 @@ class PrizeTableRow(db.Model):
     team_id = db.Column(UUID(as_uuid=True),
                         db.ForeignKey('teams.id'), nullable=True)
     team = db.relationship('Team', back_populates='prizetable_rows')
+
+
+class ScheduledTournament(db.Model):
+    __tablename__ = 'scheduled_tournaments'
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tournament_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
+        'tournaments.id'), nullable=False, unique=True)
+    start_time = db.Column(db.DateTime, nullable=False)
+    job_id = db.Column(db.String(256), unique=True)  # ID задания в scheduler
+
+    tournament = db.relationship(
+        'Tournament', backref=db.backref('scheduled', uselist=False))
+
+    def __repr__(self):
+        return f'<ScheduledTournament tournament_id={self.tournament_id} start_time={self.start_time}>'
