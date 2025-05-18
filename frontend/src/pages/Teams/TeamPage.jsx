@@ -1,22 +1,11 @@
 import { useParams } from "react-router-dom";
-import { useState } from "react";
-
+import { useState, useEffect } from "react";
+import { getTeam } from "../../api/teams";
+import { API_URL } from "../../constants.js";
 import TitleH2 from "../../components/TitleH2/TitleH2";
-import TabSwich from "../../components/TabSwitch/TabSwith";
+import TabSwitch from "../../components/TabSwitch/TabSwitch.jsx";
 import RoundCards from "../../components/RoundCard/RoundCardsContainer.jsx";
 
-const team = {
-  id: 0,
-  avatar: "/src/images/game1.jpg",
-  name: "команда 1",
-  description: "sagggg JKHCVBJG iueirybv xmsamadj",
-  //   description: "sagggg JKHCVBJG iueirybv xmsamadj",
-  description: "",
-  participants: [
-    { id: 0, avatar: "/src/images/game1.jpg", name: "gg" },
-    { id: 1, avatar: "/src/images/game1.jpg", name: "Оля" },
-  ],
-};
 const tabs = [
   { id: "information", label: "Информация" },
   { id: "participants", label: "Участники" },
@@ -25,21 +14,65 @@ const tabs = [
 export default function TeamPage() {
   const { id } = useParams();
   const [activeTab, setActiveTab] = useState("information");
+  const [team, setTeam] = useState(null);
+  const [error, setError] = useState("");
+
+  // Формирование URL для логотипа
+  const getLogoUrl = (logoPath) =>
+    logoPath ? `${API_URL}${logoPath}` : `${API_URL}/static/team_logos/default.png`;
+
+  // Формирование URL для аватара участника
+  const getAvatarUrl = (avatar) =>
+    avatar ? `${API_URL}${avatar}` : `${API_URL}/static/avatars/default.png`;
+
+  // Загрузка данных команды
+  const fetchTeam = async () => {
+    try {
+      const res = await getTeam(id);
+      const teamData = res.data;
+      setTeam({
+        id: teamData.id,
+        name: teamData.title,
+        avatar: getLogoUrl(teamData.logo_path),
+        description: teamData.description,
+        participants: (teamData.players || []).map((player) => ({
+          id: player.id,
+          name: player.name,
+          avatar: getAvatarUrl(player.avatar),
+        })),
+      });
+      setError("");
+    } catch (err) {
+      setError(err.response?.data?.msg || "Ошибка загрузки данных команды");
+    }
+  };
+
+  // Загрузка данных при монтировании
+  useEffect(() => {
+    fetchTeam();
+  }, [id]);
+
+  if (error) {
+    return <div className="team__error">{error}</div>;
+  }
+
+  if (!team) {
+    return <div>Загрузка...</div>;
+  }
+
   return (
     <div>
-      {/* <h1>Страница команды</h1> */}
       <div className="profile profile__header">
-        {/* <p>ID команды: {id}</p> */}
         <div className="profile__avatar">
           <img
             src={team.avatar}
-            alt="avatar"
+            alt="team avatar"
             className="profile__avatar-image"
           />
         </div>
         <TitleH2 title={team.name} />
       </div>
-      <TabSwich tabs={tabs} activeTab={activeTab} onTabClick={setActiveTab} />
+      <TabSwitch tabs={tabs} activeTab={activeTab} onTabClick={setActiveTab} />
 
       <div className="tab-content">
         {activeTab === "information" && (
@@ -50,7 +83,11 @@ export default function TeamPage() {
           </p>
         )}
         {activeTab === "participants" && (
-          <RoundCards users={team.participants} isRequest={false} isTeam={false} />
+          <RoundCards
+            users={team.participants}
+            isRequest={false}
+            isTeam={false}
+          />
         )}
       </div>
     </div>

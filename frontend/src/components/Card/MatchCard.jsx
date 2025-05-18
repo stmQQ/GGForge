@@ -1,5 +1,5 @@
 import "./matchCard.scss";
-import { useState } from "react";
+import { useState, useContext } from "react";
 import Modal from "../../components/Modal/Modal.jsx";
 import ModalButton from "../../components/Button/ModalButton.jsx";
 import DetailsIcon from "../../icons/box-arrow-up-right.svg?react";
@@ -7,23 +7,27 @@ import TitleH2 from "../../components/TitleH2/TitleH2.jsx";
 import ExternalLinkButton from "../Button/ExternalLinkButton.jsx";
 import SubmitButton from "../Button/SubmitButton.jsx";
 import TextInput from "../InputFields/TextInput.jsx";
-
-const Admin = true;
+import { API_URL } from "../../constants.js";
+import { AuthContext } from "../../context/AuthContext.jsx";
+import { startMatch, completeMap } from "../../api/tournaments.js";
 
 export default function MatchCard({ match, className }) {
   const getMatchStatus = (status) => {
     switch (status) {
-      case "upcoming":
+      case "scheduled":
         return { text: "Предстоящий", class: "status--upcoming" };
       case "ongoing":
         return { text: "Текущий", class: "status--ongoing" };
       case "completed":
         return { text: "Завершён", class: "status--completed" };
       default:
-        return { text: "Неизвестно", class: "status--unknown" };
+        return { text: "Отмене", class: "status--unknown" };
     }
   };
 
+  const { isAdmin } = useContext(AuthContext);
+  const [isCreator, setCreator] = useState(match.creator === match.user_id);
+  const [canBeStarted, setCanBeStarted] = useState(match.participant1?.id || match.participant2?.id)
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isStarted, setIsStarted] = useState(false);
   const [isFinished, setIsFinished] = useState(false); // Состояние для кнопки "Завершить матч"
@@ -34,6 +38,18 @@ export default function MatchCard({ match, className }) {
       externalUrl: map.external_url || "", // Ссылка на игру
     })) || []
   );
+  // setCreator(match.creator === match.user_id)
+  // console.log(match)
+  if (match.participant1?.user) {
+    match.participant1 = match.participant1.user
+    match.participant1.avatar = `${API_URL}/${match.participant1.avatar}`
+  }
+  if (match.participant2?.user) {
+    match.participant2 = match.participant2.user
+    match.participant2.avatar = `${API_URL}/${match.participant2.avatar}`
+  }
+
+  console.log(match)
 
   const openModal = () => {
     setIsModalOpen(true);
@@ -42,7 +58,6 @@ export default function MatchCard({ match, className }) {
   const closeModal = () => {
     setIsModalOpen(false);
   };
-
   // Компонент для блока с победителями
   const renderWinners = () => (
     <div className="match-details-modal__winners">
@@ -51,8 +66,8 @@ export default function MatchCard({ match, className }) {
           map.winner_id === match.participant1.id.toString()
             ? match.participant1
             : map.winner_id === match.participant2.id.toString()
-            ? match.participant2
-            : null;
+              ? match.participant2
+              : null;
         return (
           <div key={index} className="winner-block">
             <div className="winner-block-left">
@@ -60,7 +75,7 @@ export default function MatchCard({ match, className }) {
               {winner && (
                 <div className="winner-block__details">
                   <img
-                    src={winner.avatar || "/src/images/default-avatar.png"}
+                    src={winner.avatar || "1.png"}
                     alt="winner avatar"
                     className="winner-block__avatar"
                   />
@@ -81,12 +96,7 @@ export default function MatchCard({ match, className }) {
     </div>
   );
 
-  // Компонент для текста "УРА"
-  const renderAdminUra = () => (
-    <div className="match-details-modal__ura">
-      <TitleH2 title="УРА" />
-    </div>
-  );
+
 
   // Компонент для выбора победителя и ссылки
   const renderOngoingMaps = () => (
@@ -110,7 +120,7 @@ export default function MatchCard({ match, className }) {
                   disabled={isFinished}
                 />
                 <img
-                  src={match.participant1.avatar || "/src/images/default-avatar.png"}
+                  src={match.participant1.avatar || "2.png"}
                   alt="avatar"
                   className="winner-block__avatar"
                 />
@@ -128,7 +138,7 @@ export default function MatchCard({ match, className }) {
                   disabled={isFinished}
                 />
                 <img
-                  src={match.participant2.avatar || "/src/images/default-avatar.png"}
+                  src={match.participant2.avatar || "3.png"}
                   alt="avatar"
                   className="winner-block__avatar"
                 />
@@ -149,7 +159,7 @@ export default function MatchCard({ match, className }) {
       <div className="match-details-modal__finish">
         <SubmitButton
           text="Завершить матч"
-          onClick={handleFinishMatch}
+          onClick={() => handleFinishMatch(match.tournament_id, match.id)}
           disabled={isFinished || !mapResults.every((result) => result.winnerId)}
           isSent={isFinished}
         />
@@ -165,26 +175,37 @@ export default function MatchCard({ match, className }) {
   };
 
   // Обработчик для кнопки "Начать"
-  const handleStartMatch = () => {
-    console.log("Запрос");
-    setIsStarted(true);
+  const handleStartMatch = async (tournamentId, matchId) => {
+    try {
+      await startMatch(tournamentId, matchId);
+      setIsStarted(true);
+    } catch (error) {
+      console.error('Ошибка при старте матча:', error);
+      throw error;
+    }
   };
 
   // Обработчик для кнопки "Завершить матч"
-  const handleFinishMatch = async () => {
-
-      console.log("Готово");
-    
+  const handleFinishMatch = async (tournamentId, matchId) => {
+    try {
+      for (const res of mapResults) {
+        if (res.winnerId) {
+          // console.log(tournamentId, matchId, res.mapId, res.winnerId)
+          await completeMap(tournamentId, matchId, res.mapId, res.winnerId)
+        }
+      }
+      setIsFinished(true)
+    } catch (err) {
+      throw new Error(err.response?.data?.msg || "Ошибка при завершении матча");
+    }
   };
-
   return (
     <div className={`match-card ${className || ""}`}>
       <div className="match-card__header">
         <div className="match-card__header-left">
           <span
-            className={`match-card__status ${
-              getMatchStatus(match.status).class
-            }`}
+            className={`match-card__status ${getMatchStatus(match.status).class
+              }`}
           >
             {getMatchStatus(match.status).text}
           </span>
@@ -204,20 +225,20 @@ export default function MatchCard({ match, className }) {
       <div className="match-card__teams">
         <div className="match-card__team">
           <img
-            src={match.participant1.avatar || "/src/images/default-avatar.png"}
+            src={match.participant1?.avatar || "4.png"}
             alt="avatar"
             className="match-card__avatar"
           />
-          <span className="match-card__name">{match.participant1.name}</span>
+          <span className="match-card__name">{match.participant1?.name}</span>
           <span className="match-card__score">{match.score1}</span>
         </div>
         <div className="match-card__team">
           <img
-            src={match.participant2.avatar || "/src/images/default-avatar.png"}
+            src={match.participant2?.avatar || "5.png"}
             alt="avatar"
             className="match-card__avatar"
           />
-          <span className="match-card__name">{match.participant2.name}</span>
+          <span className="match-card__name">{match.participant2?.name}</span>
           <span className="match-card__score">{match.score2}</span>
         </div>
       </div>
@@ -226,9 +247,8 @@ export default function MatchCard({ match, className }) {
           <TitleH2 title={`Матч ${match.number}`} />
           <div className="match-details-modal__header">
             <span
-              className={`match-card__status ${
-                getMatchStatus(match.status).class
-              }`}
+              className={`match-card__status ${getMatchStatus(match.status).class
+                }`}
             >
               {getMatchStatus(match.status).text}
             </span>
@@ -237,9 +257,9 @@ export default function MatchCard({ match, className }) {
             </span>
           </div>
           <div className="match-details-modal__teams">
-            <p>{match.participant1.name}</p>
+            <p>{match.participant1?.name}</p>
             <img
-              src={match.participant1.avatar || "/src/images/default-avatar.png"}
+              src={match.participant1?.avatar || "6.png"}
               alt="avatar"
               className="match-details-modal__avatar"
             />
@@ -247,25 +267,23 @@ export default function MatchCard({ match, className }) {
               {match.score1} : {match.score2}
             </span>
             <img
-              src={match.participant2.avatar || "/src/images/default-avatar.png"}
+              src={match.participant2?.avatar || "7.png"}
               alt="avatar"
               className="match-details-modal__avatar"
             />
-            <p>{match.participant2.name}</p>
+            <p>{match.participant2?.name}</p>
           </div>
-          {Admin && match.status === "upcoming" ? (
+          {(isAdmin || isCreator) && canBeStarted && match.status === "scheduled" ? (
             <div className="match-details-modal__start">
               <SubmitButton
                 text="Начать"
-                onClick={handleStartMatch}
+                onClick={() => handleStartMatch(match.tournament_id, match.id)}
                 disabled={isStarted}
                 isSent={isStarted}
               />
             </div>
-          ) : Admin && match.status === "ongoing" ? (
+          ) : (isAdmin || isCreator) && match.status === "ongoing" ? (
             renderOngoingMaps()
-          ) : Admin && match.status !== "completed" ? (
-            renderAdminUra()
           ) : (
             renderWinners()
           )}

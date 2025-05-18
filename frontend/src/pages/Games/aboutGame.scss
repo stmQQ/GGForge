@@ -21,20 +21,16 @@
       background-image: linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.9)),
         url("../../images/bg_home_intro.png");
 
-      mask-image: linear-gradient(
-          to top,
+      mask-image: linear-gradient(to top,
           rgba(0, 0, 0, 0) 0%,
           rgba(0, 0, 0, 0.9) 20%,
           rgba(0, 0, 0, 0.9) 80%,
-          rgba(0, 0, 0, 0) 100%
-        ),
-        linear-gradient(
-          to left,
+          rgba(0, 0, 0, 0) 100%),
+        linear-gradient(to left,
           rgba(0, 0, 0, 0) 0%,
           rgba(0, 0, 0, 0.9) 20%,
           rgba(0, 0, 0, 0.9) 80%,
-          rgba(0, 0, 0, 0) 100%
-        );
+          rgba(0, 0, 0, 0) 100%);
       mask-composite: intersect;
       background-size: cover;
       background-position: center;
@@ -54,14 +50,20 @@
 
   }
 
-&__tab{
-padding-bottom: clamp(20px, 8vw, 35px);
-}
-&__filter {
-  padding-bottom: clamp(20px, 8vw, 35px);
-}
+  &__tab {
+    padding-bottom: clamp(20px, 8vw, 35px);
+  }
+
+  &__filter {
+    padding-bottom: clamp(20px, 8vw, 35px);
+  }
+
+
 }
 
+.aboutgame__tournaments {
+  font-family: roboto-r;
+}
 
 .aboutgame__filter {
   select {

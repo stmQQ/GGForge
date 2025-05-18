@@ -1,34 +1,29 @@
 import { useState, useEffect } from "react";
-import { useLocation, useNavigate } from "react-router-dom"; // useNavigate нужен
+import { useLocation, useNavigate } from "react-router-dom";
 import "./userTournaments.scss";
-import game1 from "../../images/game2.jpg";
-
+import { getParticipantTournaments, getCreatorTournaments } from "../../api/tournaments";
+import { API_URL } from "../../constants";
 import TitleH2 from "../../components/TitleH2/TitleH2";
 import Tournaments from "../../components/Tournaments/Tournaments";
 
 export default function UserTournaments() {
   const location = useLocation();
   const navigate = useNavigate();
-
-  // Начальные значения — пока просто дефолтные
   const [tournamentFilter, setTournamentFilter] = useState("open");
   const [organizerFilter, setOrganizerFilter] = useState("manager");
+  const [tournaments, setTournaments] = useState([]);
+  const [error, setError] = useState("");
 
-  // При заходе на страницу — читаем параметры из URL
+  // Чтение параметров из URL
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    const tournament = params.get("tournament");
-    const organizer = params.get("organizer");
-
-    if (tournament) {
-      setTournamentFilter(tournament);
-    }
-    if (organizer) {
-      setOrganizerFilter(organizer);
-    }
+    const tournament = params.get("tournament") || "open";
+    const organizer = params.get("organizer") || "manager";
+    setTournamentFilter(tournament);
+    setOrganizerFilter(organizer);
   }, [location.search]);
 
-  // При изменении фильтров — обновляем URL
+  // Обновление URL при изменении фильтров
   useEffect(() => {
     const params = new URLSearchParams();
     params.set("tournament", tournamentFilter);
@@ -36,102 +31,39 @@ export default function UserTournaments() {
     navigate(`${location.pathname}?${params.toString()}`, { replace: true });
   }, [tournamentFilter, organizerFilter, navigate, location.pathname]);
 
-  const participantTournaments = [
-    {
-      id: 1,
-      img: game1,
-      title: "Турнир 1 уч",
-      status: "open",
-      date: "12.12.2003 | 17:00",
-      inf: "5v5 | 32 места | 1.000.000₽ ",
-    },
-    {
-      id: 7,
-      img: game1,
-      title: "Турнир 1 уч",
-      status: "open",
-      date: "12.12.2003 | 17:00",
-      inf: "5v5 | 32 места | 1.000.000₽ ",
-    },
-    {
-      id: 72,
-      img: game1,
-      title: "Турнир 1 уч",
-      status: "open",
-      date: "12.12.2003 | 17:00",
-      inf: "5v5 | 32 места | 1.000.000₽ ",
-    },
-    {
-      id: 71,
-      img: game1,
-      title: "Турнир 1 уч",
-      status: "open",
-      date: "12.12.2003 | 17:00",
-      inf: "5v5 | 32 места | 1.000.000₽ ",
-    },
-    {
-      id: 11,
-      img: game1,
-      title: "Турнир 1 уч",
-      status: "cancelled",
-      date: "12.12.2003 | 17:00",
-      inf: "5v5 | 32 места | 1.000.000₽ ",
-    },
-    {
-      id: 2,
-      img: game1,
-      title: "Турнир 2 уч",
-      status: "ongoing",
-      date: "12.12.2003 | 17:00",
-      inf: "5v5 | 32 места | 1.000.000₽ ",
-    },
-    {
-      id: 3,
-      img: game1,
-      title: "Турнир 3 уч",
-      status: "completed",
-      date: "12.12.2003 | 17:00",
-      inf: "5v5 | 32 места | 1.000.000₽ ",
-    },
-  ];
+  // Загрузка турниров
+  useEffect(() => {
+    const fetchTournaments = async () => {
+      try {
+        const apiCall = organizerFilter === "manager" ? getCreatorTournaments : getParticipantTournaments;
+        const res = await apiCall();
+        setTournaments(
+          res.data.map((t) => ({
+            id: t.id,
+            img: t.banner_url ? `${API_URL}/${t.banner_url}` : `${API_URL}/static/tournaments/default/trnt_${t.game.title.replace(/\s+/g, '')}.png`,
+            title: t.title,
+            status: t.status,
+            date: t.start_time,
+            inf: `Призовой фонд: ${t.prize_fund || "0"} ₽`,
+          }))
+        );
+        setError("");
+      } catch (err) {
+        setError(err.response?.data?.msg);
+      }
+    };
+    fetchTournaments();
+  }, [organizerFilter]);
 
-  const managerTournaments = [
-    {
-      id: 1,
-      img: game1,
-      title: "Турнир 1 орг",
-      status: "open",
-      date: "12.12.2003 | 17:00",
-      inf: "5v5 | 32 места | 1.000.000₽ ",
-    },
-    {
-      id: 2,
-      img: game1,
-      title: "Турнир 2 орг",
-      status: "ongoing",
-      date: "12.12.2003 | 17:00",
-      inf: "5v5 | 32 места | 1.000.000₽ ",
-    },
-    {
-      id: 3,
-      img: game1,
-      title: "Турнир 3 орг",
-      status: "completed",
-      date: "12.12.2003 | 17:00",
-      inf: "5v5 | 32 места | 1.000.000₽ ",
-    },
-  ];
-
-  const arrayTournaments =
-    organizerFilter === "manager" ? managerTournaments : participantTournaments;
-
-  const filteredTournaments = arrayTournaments.filter(
+  // Фильтрация турниров по статусу
+  const filteredTournaments = tournaments.filter(
     (tournament) => tournament.status === tournamentFilter
   );
 
   return (
     <div className="user-tournaments">
       <TitleH2 title="Ваши турниры" style="indent" />
+      {error && <div className="error-message">{error}</div>}
       <div className="user-tournaments__filters">
         <div className="user-tournaments__filter">
           <select
@@ -141,7 +73,7 @@ export default function UserTournaments() {
             <option value="open">Предстоящие</option>
             <option value="ongoing">Текущие</option>
             <option value="completed">Завершённые</option>
-            <option value="cancelled">Отмененные</option>
+            <option value="cancelled">Отменённые</option>
           </select>
         </div>
         <div className="user-tournaments__filter">

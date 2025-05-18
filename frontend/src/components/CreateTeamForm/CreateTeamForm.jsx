@@ -11,23 +11,17 @@ export default function CreateTeamForm({ onSubmit }) {
   const [description, setDescription] = useState("");
   const [logoFile, setLogoFile] = useState(null);
 
-  // const [wasSubmitted, setWasSubmitted] = useState(false);
-
-  // const isTeamNameInvalid = teamName.trim() === "";
-  // const isLogoInvalid = !logoFile;
-
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (!teamName.trim()) return; // Простая валидация
     onSubmit({ teamName, description, logoFile });
+    setTeamName("");
+    setDescription("");
+    setLogoFile(null);
   };
-
-  // const handleFileChange = (e) => {
-  //   setLogoFile(e.target.files[0]);
-  // };
 
   return (
     <form className="create-team-form" onSubmit={handleSubmit}>
-      {/* <h2>Создание команды</h2> */}
       <TitleH2 title="Создание команды" />
       <AvatarUploader onChange={(file) => setLogoFile(file)} />
 
@@ -37,6 +31,7 @@ export default function CreateTeamForm({ onSubmit }) {
         value={teamName}
         onChange={(e) => setTeamName(e.target.value)}
         placeholder="Введите название"
+        required
       />
 
       <TextareaField

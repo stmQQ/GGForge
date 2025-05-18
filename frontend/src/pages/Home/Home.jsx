@@ -8,6 +8,8 @@ import Footer from "../../components/Footer/Footer.jsx";
 import { tournaments } from "../../helpers/tournamentsList";
 // import Header from "../../components/Header/Header.jsx";
 
+import { API_URL } from "../../constants.js";
+
 export default function Home() {
   return (
     <div className="home">
@@ -26,19 +28,19 @@ export default function Home() {
         text="Оттачивай мастерство, собирай награды и погружайся в мир киберспорта!"
         link="/games"
         linkText="Найти турнир"
-        image="src/images/Ghostrunner.png"
+        image={`${API_URL}/${"static/general/Ghostrunner.png"}`}
       />
-      <TitleH2 title="Просмотр игр" style="indent"/>
-      <GamesMain />
+      <TitleH2 title="Просмотр игр" style="indent" />
+      <GamesMain limit={6} />
       <Card
         reverse={true}
-        text="Создай комунду мечты: твой формат, твои правила, твои участники!"
+        text="Создай команду мечты: твой формат, твои правила, твои участники!"
         link="/teams"
         linkText="Создать команду"
-        image="src/images/sova.png"
+        image={`${API_URL}/${"static/general/Sova.png"}`}
       />
-      <TitleH2 title="Популярные турниры" style="indent"/>
-      <Tournaments array={tournaments}/>
+      <TitleH2 title="Популярные турниры" style="indent" />
+      <Tournaments array={tournaments} />
       <Footer />
     </div>
   );

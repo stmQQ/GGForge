@@ -9,10 +9,10 @@ export default function UserInfo({ user, avatar }) {
         <span
           className="profile__status-indicator"
           style={{
-            backgroundColor: user.isOnline ? "#00c853" : "#f44336",
+            backgroundColor: user.is_online ? "#00c853" : "#f44336",
           }}
         ></span>
-        {user.isOnline ? "В сети" : "Не в сети"} • Дата регистрации {user.registeredDays}
+        {user.is_online ? "В сети" : "Не в сети"} • Дата регистрации {user.registration_date}
       </div>
     </div>
   );

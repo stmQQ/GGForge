@@ -1,22 +1,33 @@
-import "./index.scss";
-import { Routes, Route } from "react-router-dom";
-import { useRef, useEffect, useState } from "react";
-import Sidebar from "./components/Sidebar/Sidebar";
-import Header from "./components/Header/Header.jsx";
-import Home from "./pages/Home/Home";
-import Games from "./pages/Games/Games";
-import Friends from "./pages/Friends/Friends.jsx";
-import Commands from "./pages/Teams/Teams.jsx";
-import HeaderLogIn from "./components/Header/HeaderLogIn.jsx";
-import AboutGame from "./pages/Games/AboutGame.jsx";
-import Tournaments from "./pages/Tournaments/UserTournaments.jsx";
-import NewTournament from "./pages/Tournaments/NewTournament.jsx";
-import TeamPage from "./pages/Teams/TeamPage.jsx";
-import TournamentPage from "./pages/Tournaments/TournamentPage.jsx";
-// import Notifications from "./pages/Notifications/Notifications.jsx";
+import './index.scss';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { useState, useContext } from 'react';
+import { AuthContext } from './context/AuthContext';
+import Sidebar from './components/Sidebar/Sidebar';
+import Header from './components/Header/Header.jsx';
+import Home from './pages/Home/Home';
+import Games from './pages/Games/Games';
+import Friends from './pages/Friends/Friends.jsx';
+import Teams from './pages/Teams/Teams.jsx'; // Переименовано с Commands
+import AboutGame from './pages/Games/AboutGame.jsx';
+import Tournaments from './pages/Tournaments/UserTournaments.jsx';
+import NewTournament from './pages/Tournaments/NewTournament.jsx';
+import TeamPage from './pages/Teams/TeamPage.jsx';
+import TournamentPage from './pages/Tournaments/TournamentPage.jsx';
+import Profile from './pages/Profiles/Profile.jsx';
+import MyProfile from './pages/Profiles/MyProfile.jsx';
+// import Support from './pages/Support/Support.jsx'; // Новый компонент для поддержки
 
-import Profile from "./pages/Profiles/Profile.jsx"
-import MyProfile from "./pages/Profiles/MyProfile.jsx"; // Твой личный проф
+// Компонент для защиты маршрутов
+const ProtectedRoute = ({ children }) => {
+  const { isAuthenticated, isLoading } = useContext(AuthContext);
+  if (isLoading) return <div>Загрузка...</div>;
+  if (!isAuthenticated) {
+    // Диспатчим событие unauthorized для открытия модала
+    window.dispatchEvent(new CustomEvent('unauthorized'));
+    return <Navigate to="/" replace />;
+  }
+  return children;
+};
 
 function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -27,38 +38,83 @@ function App() {
 
   return (
     <div className="App">
-      <Sidebar  isOpen={isSidebarOpen} onClose={toggleSidebar}  />
-      <HeaderLogIn onMenuToggle={toggleSidebar}/>
-      {/* <Header onMenuToggle={toggleSidebar} /> */}
-      <div
-        className="MainWrapper"
-        // style={{
-        //   maxWidth: "1800px",
-        //   width: "93%",
-        //   margin: "0 auto",
-        //   padding: isTablet ? "0 4%" : "0 3% 0 10%",
-        //   paddingTop: Math.max(window.innerHeight * 0.04, 40),
-        // }}
-      >
+      <Sidebar isOpen={isSidebarOpen} onClose={toggleSidebar} />
+      <Header onMenuToggle={toggleSidebar} />
+      <div className="MainWrapper">
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/games" element={<Games />} />
-          <Route path="/friends" element={<Friends />} />
-          <Route path="/teams" element={<Commands />} />
-          <Route path="/games/:id" element={<AboutGame />} />{" "}
-          {/* Теперь принимаем id игры */}
-          <Route path="/tournaments" element={<Tournaments />} />
-
-
-        {/* Личный профиль */}
-        <Route path="/profile" element={<MyProfile />} />
-        
-        {/* Профиль другого пользователя по id */}
-        <Route path="/profile/:id" element={<Profile />} />
-        <Route path="/newtournament" element={<NewTournament />} />
-        <Route path="/team/:id" element={<TeamPage />} />
-        <Route path="/tournament/:id" element={<TournamentPage />} />
-        {/* <Route path="/notifications" element={<Notifications />} /> */}
+          <Route path="/games/:id" element={<AboutGame />} />
+          <Route
+            path="/friends"
+            element={
+              <ProtectedRoute>
+                <Friends />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/teams"
+            element={
+              <ProtectedRoute>
+                <Teams />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/tournaments"
+            element={
+              <Tournaments />
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <MyProfile />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/profile/:id"
+            element={
+              <ProtectedRoute>
+                <Profile />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/newtournament"
+            element={
+              <ProtectedRoute>
+                <NewTournament />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/team/:id"
+            element={
+              <ProtectedRoute>
+                <TeamPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/tournament/:id"
+            element={
+              <ProtectedRoute>
+                <TournamentPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* <Route
+            path="/support"
+            element={
+              <ProtectedRoute>
+                <Support />
+              </ProtectedRoute>
+            }
+          /> */}
         </Routes>
       </div>
     </div>

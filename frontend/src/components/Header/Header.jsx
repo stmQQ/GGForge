@@ -1,25 +1,28 @@
-import { useState, useRef, useEffect } from "react";
-import { Link } from "react-router-dom";
-import "./header.scss";
-import NotificationsIcon from "../../icons/bell-ring.svg?react";
-import ProfileIcon from "../../icons/profile.svg?react";
-import MenuIcon from "../../icons/list.svg?react";
+import './header.scss';
+import { useState, useContext, useEffect } from 'react';
+import ModalButton from '../Button/ModalButton.jsx';
+import Modal from '../Modal/Modal.jsx';
+import MenuIcon from '../../icons/list.svg?react';
+import ProfileIcon from '../../icons/profile.svg?react';
+import { AuthContext } from '../../context/AuthContext';
+import AuthForm from './AuthForm.jsx';
+import ProfileDropdown from './ProfileDropdown.jsx';
 
 export default function Header({ onMenuToggle }) {
-  const hasNotifications = true;
+  const { isAuthenticated, user, isAdmin, logout } = useContext(AuthContext);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [isProfileOpen, setProfileOpen] = useState(false);
-  const profileRef = useRef(null);
 
+  // Открываем модал при 401-ошибке или попытке доступа к защищённому маршруту
   useEffect(() => {
-    function handleClickOutside(e) {
-      if (profileRef.current && !profileRef.current.contains(e.target)) {
-        setProfileOpen(false);
+    const handleUnauthorized = () => {
+      if (!isModalOpen) {
+        setIsModalOpen(true);
       }
-    }
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+    };
+    window.addEventListener('unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('unauthorized', handleUnauthorized);
+  }, [isModalOpen]);
 
   return (
     <div className="header">
@@ -33,39 +36,34 @@ export default function Header({ onMenuToggle }) {
         </button>
       </div>
 
-      <div className="header__item" ref={profileRef}>
-        <button
-          className="header__button"
-          aria-label="профиль"
-          onClick={() => setProfileOpen((prev) => !prev)}
-        >
-          <ProfileIcon className="header__icon" />
-        </button>
-        {isProfileOpen && (
-          <div className="dropdown dropdown__profile">
-            <Link to="/profile" className="dropdown__item">
-              Профиль
-            </Link>
-            <Link to="/friends" className="dropdown__item">
-              Друзья
-            </Link>
-            <Link to="/teams" className="dropdown__item">
-              Команды
-            </Link>
-            <div className="dropdown__divider" />
-            <Link to="/games" className="dropdown__item">
-              Игры
-            </Link>
-            <Link to="/tournaments" className="dropdown__item">
-              Турниры
-            </Link>
-            <div className="dropdown__divider" />
-            <Link to="/logout" className="dropdown__item">
-              Выйти
-            </Link>
+      <div className="header__item">
+        {isAuthenticated ? (
+          <div className="header__item">
+            <button
+              className="header__button"
+              aria-label="профиль"
+              onClick={() => setProfileOpen((prev) => !prev)}
+            >
+              <ProfileIcon className="header__icon" />
+            </button>
+
+            <ProfileDropdown
+              isOpen={isProfileOpen}
+              onClose={() => setProfileOpen(false)}
+              logout={logout}
+            />
           </div>
+        ) : (
+          <ModalButton text="Вход" onClick={() => setIsModalOpen(true)} />
         )}
       </div>
+
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+      >
+        <AuthForm onSuccess={() => setIsModalOpen(false)} />
+      </Modal>
     </div>
   );
 }

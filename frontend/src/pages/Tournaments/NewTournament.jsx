@@ -1,18 +1,19 @@
 import "./newtournament.scss";
-
 import { useLocation, useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
-
+import { useState, useEffect, useContext } from "react";
+import { AuthContext } from "../../context/AuthContext";
+import { createTournament } from "../../api/tournaments";
 import TitleH2 from "../../components/TitleH2/TitleH2";
 import TextInput from "../../components/InputFields/TextInput";
 import SubmitButton from "../../components/Button/SubmitButton";
 import RadioGroup from "../../components/InputFields/RadioGroup";
-import AvatarUploader from "../../components/CreateTeamForm/AvatarUploader";
 import TextareaField from "../../components/InputFields/TextareaField";
+import AvatarUploader from "../../components/CreateTeamForm/AvatarUploader";
 
 export default function NewTournamentPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { isAuthenticated } = useContext(AuthContext);
   const { game, tournamentName } = location.state || {};
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
@@ -21,57 +22,111 @@ export default function NewTournamentPage() {
   const [groupStage, setGroupStage] = useState(false);
   const [slots, setSlots] = useState(4);
   const [selectedSlots, setSelectedSlots] = useState(4);
-  const [playoffStage, setPlayoffStage] = useState("single");
   const [matchFormat, setMatchFormat] = useState("bo1");
   const [finalFormat, setFinalFormat] = useState("bo1");
-  const [imageFile, setImageFile] = useState(null);
   const [description, setDescription] = useState("");
-  // const [imageError, setImageError] = useState(false);
-  // const [image, setImage] = useState(null);
-  // const [imageError, setImageError] = useState(false);
+  const [imageFile, setImageFile] = useState(null);
+  const [error, setError] = useState("");
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      navigate("/login", { replace: true });
+    }
     if (!game || !tournamentName) {
-      // Если пришли напрямую или потеряли state — редирект обратно
       navigate("/", { replace: true });
     }
-  }, [game, tournamentName, navigate]);
+  }, [isAuthenticated, game, tournamentName, navigate]);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    // if (!image) {
-    //   setImageError(true);
-    //   return;
-    // }
-    // setImageError(false);
-    // if (!imageFile) {
-    //   setImageError(true);
-    //   return;
-    // }
-    // setImageError(false);
-    console.log("Форма отправлена!", imageFile);
-    console.log("Ура!");
-    navigate("/tournaments?tournament=open&organizer=manager");
+
+    if (!tournamentName || tournamentName.length < 3) {
+      setError("Название турнира должно быть не короче 3 символов");
+      return;
+    }
+    if (!date || !time) {
+      setError("Укажите дату и время");
+      return;
+    }
+    const localDateTime = new Date(`${date}T${time}`);
+    const startTime = localDateTime.toISOString();
+
+    if (startTime < new Date()) {
+      setError("Дата и время должны быть в будущем");
+      return;
+    }
+    if (prizePool && !/^\d+(\.\d{3})*$/.test(prizePool.replace(/\s/g, ""))) {
+      setError("Некорректный формат призового фонда");
+      return;
+    }
+    if (contact && !/^[^\s@]+@[^\s@]+\.[^\s@]+$|^(\+?\d{1,3}[- ]?)?\d{10}$/.test(contact)) {
+      setError("Некорректный формат контакта (email или телефон)");
+      return;
+    }
+
+    const maxParticipants = groupStage ? selectedSlots : slots;
+    const numGroups = groupStage ? (maxParticipants <= 16 ? 2 : 4) : undefined;
+    const maxParticipantsPerGroup = groupStage ? Math.ceil(maxParticipants / numGroups) : undefined;
+    const playoffParticipantsCountPerGroup = groupStage
+      ? (() => {
+        const maxRows = maxParticipantsPerGroup;
+        if (maxRows <= 4) return Math.ceil(maxRows / 2);
+        if (maxRows === 5) return 2;
+        if (maxRows >= 6 && maxRows <= 8) return 4;
+        return maxRows - 2;
+      })()
+      : undefined;
+
+    const tournamentData = new FormData();
+    const jsonData = {
+      title: tournamentName,
+      game_id: game.id,
+      start_time: startTime,
+      format_: matchFormat,
+      final_format_: finalFormat,
+      max_participants: maxParticipants,
+      prize_fund: prizePool ? parseInt(prizePool.replace(/[\s.]/g, "")) : undefined,
+      contact: contact,
+      description: description,
+      has_group_stage: groupStage,
+      has_playoff: true,
+      num_groups: numGroups,
+      max_participants_per_group: maxParticipantsPerGroup,
+      playoff_participants_count_per_group: playoffParticipantsCountPerGroup,
+    };
+    Object.entries(jsonData).forEach(([key, value]) => {
+      if (value !== undefined) tournamentData.append(key, value);
+    });
+    if (imageFile) tournamentData.append("img", imageFile);
+    for (let [key, value] of tournamentData.entries()) {
+      console.log(`${key}: ${value}`);
+    }
+
+    try {
+      const response = await createTournament(tournamentData);
+      setError("");
+      navigate(`/tournaments/${response.data.tournament.id}`);
+    } catch (err) {
+      setError(err.response?.data?.msg || "Ошибка создания турнира");
+    }
   };
 
   return (
     <div className="newtournament">
       <div className="newtournament__header">
-        {/* <div className="field-wrapper"> */}
         <AvatarUploader
           onChange={(file) => {
             setImageFile(file);
-            // setImageError(false);
+            setError("");
           }}
         />
-        {/* {imageError && <p className="error-text">Загрузите изображение</p>} */}
-        {/* </div> */}
         <div className="newtournament__header-left">
-          <p>По игре: {game.title}</p>
+          <p>По игре: {game?.title}</p>
           <TitleH2 style="aboutgame__header-title" title={tournamentName} />
         </div>
       </div>
       <form className="newtournament__section" onSubmit={handleSubmit}>
+        {error && <div className="error-message">{error}</div>}
         <TextInput
           id="tournament-date"
           label="Дата проведения"
@@ -87,16 +142,16 @@ export default function NewTournamentPage() {
           onChange={(e) => setTime(e.target.value)}
         />
         <TextInput
-          id="tournament-date"
+          id="tournament-contacts"
           label="Ваши контакты"
           type="text"
           value={contact}
           onChange={(e) => setContact(e.target.value)}
-          placeholder="Как с вами связаться"
+          placeholder="Email или телефон"
         />
         <TextInput
           id="tournament-prize"
-          label="Призовой фонд, &#8381;"
+          label="Призовой фонд, ₽"
           type="text"
           value={prizePool}
           onChange={(e) => setPrizePool(e.target.value)}
@@ -167,7 +222,6 @@ export default function NewTournamentPage() {
               onChange={(e) => setSelectedSlots(Number(e.target.value))}
             />
             <div className="range-value">{selectedSlots}</div>
-
             <RadioGroup
               label="Формат матчей"
               name="matchFormat"
@@ -189,8 +243,8 @@ export default function NewTournamentPage() {
           onChange={setFinalFormat}
           options={[
             { id: "finalFormat-bo1", label: "bo1", value: "bo1" },
-            { id: "finalFormat-bo2", label: "bo3", value: "bo3" },
-            { id: "finalFormat-bo3", label: "bo5", value: "bo5" },
+            { id: "finalFormat-bo3", label: "bo3", value: "bo3" },
+            { id: "finalFormat-bo5", label: "bo5", value: "bo5" },
           ]}
         />
 

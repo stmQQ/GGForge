@@ -1,4 +1,4 @@
-export const commands = [
+export const teams = [
     { id: 0, avatar: "/src/images/game1.jpg", name: "команда 1" },
     { id: 1, avatar: "/src/images/game1.jpg", name: "команда 1" },
     { id: 4, avatar: "/src/images/game1.jpg", name: "команда 1" },
@@ -10,7 +10,7 @@ export const commands = [
     // { id: 22, avatar: "src/images/game1.jpg", name: "Оля" },
   ];
   
-  export const requests_commands = [
+  export const requests_teams = [
   { id: 5, avatar: "/src/images/game1.jpg", name: "команда 1" },
   // { id: 33, avatar: "src/images/game1.jpg", name: "Макс" },
   { id: 44, avatar: "/src/images/game1.jpg", name: "команда 1" },

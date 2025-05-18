@@ -1,179 +1,173 @@
-import "./myProfile.scss";
-import { useState } from "react";
+import './myProfile.scss';
+import { useState, useEffect, useContext } from 'react';
+import { AuthContext } from '../../context/AuthContext';
+import { getMyGameAccounts, updateMyProfile, changeAvatar, changePassword, addGameAccount, deleteGameAccount } from '../../api/users';
+import TitleH2 from '../../components/TitleH2/TitleH2';
+import add from '../../images/add-photo1.png';
+import TextInput from '../../components/InputFields/TextInput';
+import Modal from '../../components/Modal/Modal';
+import ModalButton from '../../components/Button/ModalButton';
+import GamesMain from '../../components/Games/GamesMain';
+import SubmitButton from '../../components/Button/SubmitButton';
+import GameAccount from '../../components/Games/GameAccount';
+import UserInfo from '../../components/User/UserInfo';
 
-import TitleH2 from "../../components/TitleH2/TitleH2";
-import defaultAvatar from "../../images/default-avatar.jpg";
-import add from "../../images/add-photo1.png";
-import TextInput from "../../components/InputFields/TextInput";
-import Modal from "../../components/Modal/Modal";
-import ModalButton from "../../components/Button/ModalButton";
-import GamesMain from "../../components/Games/GamesMain";
-import SubmitButton from "../../components/Button/SubmitButton";
-import GameAccount from "../../components/Games/GameAccount";
-import UserInfo from "../../components/User/UserInfo";
-
-// import SubmitButton from "../../components/Button/SubmitButton";
-
-const user = {
-  id: 1,
-  name: "iburdinova",
-  email: "user@example.com",
-  avatar: "", // Если здесь пусто или null — будет стандартная картинка
-  isOnline: true,
-  registeredDays: "20.05.2021",
-};
+const API_URL = 'http://localhost:5000';
+const DEFAULT_AVATAR = `${API_URL}/static/avatars/default.png`;
 
 export default function MyProfile() {
-  //Аватар
-  const [avatar, setAvatar] = useState(user.avatar || defaultAvatar);
-  const [isLoading, setIsLoading] = useState(false);
-  // Настройки профиля
+  const { user, isAuthenticated, updateUser } = useContext(AuthContext);
+  const [avatar, setAvatar] = useState(DEFAULT_AVATAR);
   const [formValues, setFormValues] = useState({
-    currentPassword: "",
-    newPassword: "",
-    confirmNewPassword: "",
-    name: user.name,
+    name: '',
+    currentPassword: '',
+    newPassword: '',
+    confirmNewPassword: '',
   });
-  const [error, setError] = useState("");
-  // Модалка "Добавить аккаунт"
-  const [gameNickname, setGameNickname] = useState("");
-  const [selectedGame, setSelectedGame] = useState(null); // Состояние для выбранной игры
+  const [gameAccounts, setGameAccounts] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [gameNickname, setGameNickname] = useState('');
+  const [selectedGame, setSelectedGame] = useState(null);
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isAccountsLoading, setIsAccountsLoading] = useState(true);
 
-  const handleCloseModal = () => {
-    setIsModalOpen(false);
-    setSelectedGame(null); // сбрасываем выбранную игру при закрытии модалки
-  };
+  // Синхронизация данных пользователя
+  useEffect(() => {
+    if (user) {
+      setAvatar(user.avatar ? `${API_URL}${user.avatar}` : DEFAULT_AVATAR);
+      setFormValues((prev) => ({ ...prev, name: user.name || '' }));
+    }
+  }, [user]);
 
-  const handleGameSelect = (game) => {
-    setSelectedGame(game); // Устанавливаем выбранную игру
-  };
+  // Загрузка игровых аккаунтов
+  useEffect(() => {
+    if (isAuthenticated) {
+      getMyGameAccounts()
+        .then((res) => {
+          console.log(res.data);
+          setGameAccounts(
+            res.data.map((acc) => ({
+              id: acc.id,
+              nickname: acc.connection?.external_user_url || 'Unknown',
+              title: acc.game?.title || 'Unknown',
+              image: `${API_URL}/${acc.game?.logo_path}`,
+            }))
+          );
+        })
+        .catch((err) => setError(err.response?.data?.msg || 'Ошибка загрузки аккаунтов'))
+        .finally(() => setIsAccountsLoading(false));
+    }
+  }, [isAuthenticated]);
 
-  // Обработчик загрузки нового аватара
   const handleAvatarChange = async (e) => {
     const file = e.target.files[0];
-    if (file) {
-      const formData = new FormData();
-      formData.append("avatar", file);
-
-      try {
-        setIsLoading(true);
-        // **Здесь будет запрос на сервер для загрузки аватара**
-        // Пример:
-        // const response = await fetch("/api/upload-avatar", {
-        //   method: "POST",
-        //   body: formData,
-        // });
-
-        // **После получения ответа от сервера:**
-        // const data = await response.json();
-        // setAvatar(data.avatarUrl); // Пример получения URL аватара с сервера
-        setTimeout(() => {
-          setAvatar(URL.createObjectURL(file));
-        }, 1);
-      } catch (error) {
-        console.error("Ошибка загрузки аватара:", error);
-      } finally {
-        setIsLoading(false);
-      }
+    if (!file) return;
+    try {
+      setIsLoading(true);
+      const res = await changeAvatar(file);
+      const newAvatar = res.data.avatar;
+      const avatarUrl = newAvatar ? `${API_URL}${newAvatar}` : DEFAULT_AVATAR;
+      setAvatar(avatarUrl);
+      updateUser({ avatar: newAvatar });
+      setError('');
+    } catch (err) {
+      setError(err.response?.data?.msg || 'Ошибка загрузки аватара');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormValues((prevValues) => ({
-      ...prevValues,
-      [name]: value,
-    }));
+    setFormValues((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
   const handleSaveSettings = async () => {
-    // Проверяем, что пароли совпадают
     if (formValues.newPassword !== formValues.confirmNewPassword) {
-      alert("Новые пароли не совпадают");
+      setError('Новые пароли не совпадают');
       return;
     }
-
     try {
-      // Здесь будет отправка на сервер
-      // Пример:
-      // const response = await fetch("/api/update-password", {
-      //   method: "POST",
-      //   body: JSON.stringify(formValues),
-      //   headers: { "Content-Type": "application/json" },
-      // });
+      setIsLoading(true);
+      if (formValues.currentPassword && formValues.newPassword) {
+        await changePassword(formValues.currentPassword, formValues.newPassword);
+      }
+      if (formValues.name !== user?.name) {
+        const res = await updateMyProfile(formValues.name);
+        updateUser(res.data.user);
+      }
+      setFormValues((prev) => ({
+        ...prev,
+        currentPassword: '',
+        newPassword: '',
+        confirmNewPassword: '',
+      }));
+      setError('');
+    } catch (err) {
+      setError(err.response?.data?.msg);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-      // Если сервер вернул ошибку по текущему паролю
-      // const data = await response.json();
-      // if (data.error === "incorrect_password") {
-      //   alert("Неверный текущий пароль");
-      //   return;
-      // }
-
-      // Сохраняем данные, если все успешно
-      alert("Настройки сохранены");
-    } catch (error) {
-      console.error("Ошибка сохранения настроек:", error);
+  const handleAddGameAccount = async (e) => {
+    e.preventDefault();
+    if (!selectedGame || !gameNickname) {
+      setError('Выберите игру и введите ник');
+      return;
+    }
+    try {
+      const res = await addGameAccount(
+        selectedGame.id,
+        selectedGame.service_name || 'default',
+        gameNickname
+      );
+      setGameAccounts((prev) => [
+        ...prev,
+        {
+          id: res.data.id,
+          nickname: gameNickname,
+          title: selectedGame.title,
+          image: DEFAULT_AVATAR,
+        },
+      ]);
+      setIsModalOpen(false);
+      setSelectedGame(null);
+      setGameNickname('');
+      setError('');
+    } catch (err) {
+      setError(err.response?.data?.msg || 'Ошибка добавления аккаунта');
     }
   };
 
   const handleDeleteGameAccount = async (id) => {
     try {
-      // отправляем запрос на сервер для удаления
-      // пример:
-      // await fetch(`/api/game-accounts/${id}`, { method: "DELETE" });
-      // const response = await fetch(`/api/game-accounts/${id}`, { method: "DELETE" });
-
-      // if (!response.ok) {
-      //   throw new Error("Ошибка на сервере");
-      // }
-
-      console.log(`Отправлен запрос на удаление аккаунта с id ${id}`);
-
-      // после успешного ответа удаляем из локального состояния
-      setGameAccounts((prev) => prev.filter((account) => account.id !== id));
-      // console.log({ gameAccounts });
-    } catch (error) {
-      console.error("Ошибка удаления аккаунта:", error);
-      alert("Не удалось удалить аккаунт. Попробуйте ещё раз.");
+      await deleteGameAccount(id);
+      setGameAccounts((prev) => prev.filter((acc) => acc.id !== id));
+      setError('');
+    } catch (err) {
+      setError(err.response?.data?.msg || 'Ошибка удаления аккаунта');
     }
   };
 
-  const [gameAccounts, setGameAccounts] = useState([
-    { id: 1, nickname: "PlayerOne", title: "Dota 2", image: defaultAvatar },
-    { id: 2, nickname: "GamerGirl", title: "Valorant", image: defaultAvatar },
-  ]);
-
+  if (!isAuthenticated) {
+    return <div className="error-message">Пожалуйста, войдите в аккаунт</div>;
+  }
   return (
     <div className="profile">
       <div className="profile__avatar">
         <img src={avatar} alt="avatar" className="profile__avatar-image" />
-
         <label className="profile__avatar-button">
           <img src={add} alt="change avatar" />
           <input
             type="file"
             accept="image/*"
             onChange={handleAvatarChange}
-            style={{ display: "none" }} // Скрываем input
+            style={{ display: 'none' }}
+            disabled={isLoading}
           />
         </label>
       </div>
-
-      {/* <div className="profile__info">
-        <TitleH2 title={user.name} />
-
-        <div className="profile__status">
-          <span
-            className="profile__status-indicator"
-            style={{
-              backgroundColor: user.isOnline ? "#00c853" : "#f44336", // Зеленый если онлайн, красный если оффлайн
-            }}
-          ></span>
-          {user.isOnline ? "В сети" : "Не в сети"} • Дата регистрации{" "}
-          {user.registeredDays}
-        </div>
-      </div> */}
 
       <UserInfo user={user} avatar={avatar} />
 
@@ -183,41 +177,33 @@ export default function MyProfile() {
           <ModalButton
             text="Добавить аккаунт"
             onClick={() => setIsModalOpen(true)}
+            disabled={isAccountsLoading}
           />
-
           <div className="gameAccountsList">
-            {gameAccounts.map((account) => (
-              <GameAccount
-                key={account.id}
-                id={account.id}
-                title={account.title}
-                nickname={account.nickname}
-                image={account.image}
-                onDelete={handleDeleteGameAccount}
-              />
-            ))}
+            {isAccountsLoading ? (
+              <p>Загрузка...</p>
+            ) : gameAccounts.length ? (
+              gameAccounts.map((acc) => (
+                <GameAccount
+                  key={acc.id}
+                  id={acc.id}
+                  title={acc.title}
+                  nickname={acc.nickname}
+                  image={acc.image}
+                  onDelete={handleDeleteGameAccount}
+                  showDelete={true}
+                />
+              ))
+            ) : (
+              <p>Нет аккаунтов</p>
+            )}
           </div>
         </div>
 
-        <Modal isOpen={isModalOpen} onClose={handleCloseModal}>
+        <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}>
           <TitleH2 title="Добавить игровой аккаунт" />
-
           {selectedGame ? (
-            <form
-              className="gameNickname__form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                console.log("Игра:", selectedGame);
-                console.log("Игровой ник:", gameNickname);
-                // Здесь потом будет отправка на сервер
-
-                // После успешной отправки:
-                setGameNickname(""); // очищаем поле
-                setSelectedGame(null); // сбрасываем выбранную игру
-                setIsModalOpen(false); // закрываем модалку
-              }}
-            >
-              {/* Если игра выбрана, отображаем форму для ввода текста */}
+            <form className="gameNickname__form" onSubmit={handleAddGameAccount}>
               <TextInput
                 id="gameNickname"
                 label="Ник в игре:"
@@ -228,64 +214,60 @@ export default function MyProfile() {
               <SubmitButton text="Создать" />
             </form>
           ) : (
-            // <div>fghj</div>
-            // Если игра не выбрана, отображаем список игр
-            <GamesMain style="modal" onSelectGame={handleGameSelect} />
+            <GamesMain style="modal" onSelectGame={(game) => setSelectedGame(game)} />
           )}
         </Modal>
 
         <div className="profile__window profile__window--right">
           <h3 className="profile__window-title">Настройки</h3>
-          {/* <form onSubmit={(e) => { e.preventDefault(); handleSaveSettings(); }}> */}
           <TextInput
             id="email"
             label="Почта"
             value={user.email}
-            // onChange={() => {}}
-            placeholder="Ваш email"
             disabled={true}
-            style={{ backgroundColor: "#f0f0f0", cursor: "not-allowed" }}
+            style={{ backgroundColor: '#f0f0f0', cursor: 'not-allowed' }}
           />
           <TextInput
-            id="nickname"
+            id="name"
             label="Никнейм"
+            name="name"
             value={formValues.name}
             onChange={handleInputChange}
             placeholder="Ваш ник"
-            name="name"
           />
           <TextInput
             id="currentPassword"
             label="Текущий пароль"
             type="password"
+            name="currentPassword"
             value={formValues.currentPassword}
             onChange={handleInputChange}
             placeholder="Введите текущий пароль"
-            name="currentPassword"
           />
           <TextInput
             id="newPassword"
             label="Новый пароль"
             type="password"
+            name="newPassword"
             value={formValues.newPassword}
             onChange={handleInputChange}
             placeholder="Введите новый пароль"
-            name="newPassword"
           />
           <TextInput
             id="confirmNewPassword"
             label="Подтвердите новый пароль"
             type="password"
+            name="confirmNewPassword"
             value={formValues.confirmNewPassword}
             onChange={handleInputChange}
             placeholder="Подтвердите новый пароль"
-            name="confirmNewPassword"
           />
           {error && <div className="error-message">{error}</div>}
-
-          <button className="profile__save-button" onClick={handleSaveSettings}>
-            Сохранить
-          </button>
+          <SubmitButton
+            text="Сохранить"
+            onClick={handleSaveSettings}
+            disabled={isLoading}
+          />
         </div>
       </div>
     </div>

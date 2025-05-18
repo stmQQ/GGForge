@@ -1,61 +1,87 @@
 import "./header.scss";
-import { useState } from "react";
+import { useState, useContext, useEffect } from "react";
 import ModalButton from "../Button/ModalButton.jsx";
 import Modal from "../Modal/Modal.jsx";
-import TabSwich from "../TabSwitch/TabSwith.jsx";
+import TabSwitch from "../TabSwitch/TabSwith.jsx";
 import TextInput from "../InputFields/TextInput.jsx";
 import SubmitButton from "../Button/SubmitButton.jsx";
 import MenuIcon from "../../icons/list.svg?react";
+import { AuthContext } from '../../context/AuthContext';
+import * as authApi from '../../api/auth';
 
-export default function HeaderLogIn({ onMenuToggle }) {
+export default function HeaderLogin({ onMenuToggle }) {
+  const { login, register, isAuthenticated, user, isAdmin, logout } = useContext(AuthContext);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('login');
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState(''); // Добавлено для регистрации
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [avatar, setAvatar] = useState(null); // Для загрузки аватара
+  const [error, setError] = useState(null);
 
-  const [email, setName] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-
-  const [activeTab, setActiveTab] = useState("login");
   const tabs = [
-    { id: "login", label: "Вход" },
-    { id: "register", label: "Зарегистрироваться" },
+    { id: 'login', label: 'Вход' },
+    { id: 'register', label: 'Зарегистрироваться' },
   ];
+
   const resetForm = () => {
-    setName("");
-    setPassword("");
-    setConfirmPassword("");
+    setEmail('');
+    setName('');
+    setPassword('');
+    setConfirmPassword('');
+    setAvatar(null);
+    setError(null);
   };
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     if (!email || !password) {
-      alert("Введите почту и пароль.");
+      setError('Введите почту и пароль');
       return;
     }
-    console.log("Вход:", { email, password });
-    alert("Успешный вход (пока только имитация)");
-    // Тут будет запрос к серверу
-
-    resetForm();
-    setIsModalOpen(false);
+    try {
+      await login(email, password);
+      resetForm();
+      setIsModalOpen(false);
+    } catch (err) {
+      setError(err.response?.data?.msg || 'Ошибка входа');
+    }
   };
 
-  const handleRegister = (e) => {
+  const handleRegister = async (e) => {
     e.preventDefault();
-    if (!email || !password || !confirmPassword) {
-      alert("Пожалуйста, заполните все поля.");
+    if (!name || !email || !password || !confirmPassword) {
+      setError('Заполните все поля');
       return;
     }
     if (password !== confirmPassword) {
-      alert("Пароли не совпадают.");
+      setError('Пароли не совпадают');
       return;
     }
-    console.log("Регистрация:", { email, password, confirmPassword });
-    alert("Регистрация успешна (пока без сервера)");
-    // Тут будет запрос на регистрацию
-
-    resetForm();
-    setIsModalOpen(false);
+    try {
+      await register(name, email, password, avatar);
+      resetForm();
+      setIsModalOpen(false);
+    } catch (err) {
+      setError(err.response?.data?.msg || 'Ошибка регистрации');
+    }
   };
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setIsModalOpen(true);
+      setActiveTab('login');
+    };
+    window.addEventListener('unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('unauthorized', handleUnauthorized);
+  }, []);
+
+
+  const handleAvatarChange = (e) => {
+    setAvatar(e.target.files[0]);
+  };
+  console.log(isAuthenticated)
 
   return (
     <div className="header">
@@ -63,13 +89,21 @@ export default function HeaderLogIn({ onMenuToggle }) {
         <button
           className="header__button header__burger"
           aria-label="меню"
-          onClick={onMenuToggle} // Используем onMenuToggle, как в Header.jsx
+          onClick={onMenuToggle}
         >
           <MenuIcon className="header__icon" />
         </button>
       </div>
 
-      <ModalButton text="Вход" onClick={() => setIsModalOpen(true)} />
+      {isAuthenticated ? (
+        <div className="header__user">
+          <span>{user?.name} {isAdmin && '(Админ)'}</span>
+          <button onClick={logout}>Выйти</button>
+        </div>
+      ) : (
+        <ModalButton text="Вход" onClick={() => setIsModalOpen(true)} />
+      )}
+
       <Modal
         isOpen={isModalOpen}
         onClose={() => {
@@ -77,15 +111,16 @@ export default function HeaderLogIn({ onMenuToggle }) {
           resetForm();
         }}
       >
-        <TabSwich tabs={tabs} activeTab={activeTab} onTabClick={setActiveTab} />
+        <TabSwitch tabs={tabs} activeTab={activeTab} onTabClick={setActiveTab} />
+        {error && <p className="error">{error}</p>}
 
-        {activeTab === "login" ? (
+        {activeTab === 'login' ? (
           <form className="header__form" onSubmit={handleLogin}>
             <TextInput
               id="email"
               label="Почта:"
               value={email}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => setEmail(e.target.value)}
               placeholder="Введите почту"
             />
             <TextInput
@@ -101,10 +136,17 @@ export default function HeaderLogIn({ onMenuToggle }) {
         ) : (
           <form className="header__form" onSubmit={handleRegister}>
             <TextInput
+              id="name"
+              label="Имя:"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Введите имя"
+            />
+            <TextInput
               id="email"
               label="Почта:"
               value={email}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => setEmail(e.target.value)}
               placeholder="Введите почту"
             />
             <TextInput
@@ -123,6 +165,15 @@ export default function HeaderLogIn({ onMenuToggle }) {
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Повторите пароль"
             />
+            <div className="form__group">
+              <label htmlFor="avatar">Аватар:</label>
+              <input
+                id="avatar"
+                type="file"
+                accept="image/png,image/jpeg,image/gif"
+                onChange={handleAvatarChange}
+              />
+            </div>
             <SubmitButton text="Зарегистрироваться" />
           </form>
         )}
