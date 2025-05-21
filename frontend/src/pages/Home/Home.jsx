@@ -24,7 +24,7 @@ export default function Home() {
             img: `${API_URL}/${t.banner_url}`,
             title: t.title,
             date: t.start_time,
-            inf: t.prize_fund || '',
+            inf: `Призовой фонд: ${t.prize_fund}₽` || '',
           }))
         );
       } catch (err) {
@@ -68,8 +68,8 @@ export default function Home() {
         image={`${API_URL}/static/general/Sova.png`}
       />
       <TitleH2 title="Ближайшие турниры" style="indent" />
-      {tournaments.length === 0 ? <p>Нет предстоящих турниров</p> : 
-      <Tournaments array={tournaments} />}
+      {tournaments.length === 0 ? <p>Нет предстоящих турниров</p> :
+        <Tournaments array={tournaments} />}
       <Footer />
     </div>
   );
