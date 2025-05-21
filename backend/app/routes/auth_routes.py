@@ -19,14 +19,12 @@ auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
 @auth_bp.route('/register', methods=['POST'])
 def register():
-    print(request.content_type)
     name = request.form.get('name')
     email = request.form.get('email')
     password = request.form.get('password')
     avatar_file = request.files.get('avatar')
 
     if not name or not email or not password:
-        print(name, email, password)
         return jsonify({'msg': 'Заполните все поля'}), 400
 
     avatar_url = save_image(
@@ -35,6 +33,7 @@ def register():
     try:
         user = create_user(name=name, email=email,
                            password=password, avatar=avatar_url)
+        user.is_online = True
         if avatar_file:
             new_avatar_url = save_image(avatar_file, 'avatar', user_id=user.id)
             user.avatar = new_avatar_url
@@ -73,12 +72,13 @@ def login():
 
     if user.is_banned and (user.ban_until is None or user.ban_until > datetime.now(UTC)):
         return jsonify({'msg': 'Аккаунт заблокирован'}), 403
+    user.is_online = True
 
     access_token = create_access_token(identity=str(
         user.id), expires_delta=timedelta(minutes=30))
     refresh_token = create_refresh_token(identity=str(user.id))
 
-    user_schema = UserSchema(only=('id', 'name', 'email', 'avatar'))
+    user_schema = UserSchema(only=('id', 'name', 'email', 'avatar', 'is_online', 'registration_date'))
     return {
         'access_token': access_token,
         'refresh_token': refresh_token,

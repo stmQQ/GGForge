@@ -1,5 +1,5 @@
 import "./matchCard.scss";
-import { useState, useContext } from "react";
+import { useState, useContext, useEffect } from "react";
 import Modal from "../../components/Modal/Modal.jsx";
 import ModalButton from "../../components/Button/ModalButton.jsx";
 import DetailsIcon from "../../icons/box-arrow-up-right.svg?react";
@@ -11,7 +11,7 @@ import { API_URL } from "../../constants.js";
 import { AuthContext } from "../../context/AuthContext.jsx";
 import { startMatch, completeMap } from "../../api/tournaments.js";
 
-export default function MatchCard({ match, className }) {
+export default function MatchCard({ match, className, onFinish }) {
   const getMatchStatus = (status) => {
     switch (status) {
       case "scheduled":
@@ -21,36 +21,53 @@ export default function MatchCard({ match, className }) {
       case "completed":
         return { text: "Завершён", class: "status--completed" };
       default:
-        return { text: "Отмене", class: "status--unknown" };
+        return { text: "Отменен", class: "status--unknown" };
     }
   };
 
   const { isAdmin } = useContext(AuthContext);
-  const [isCreator, setCreator] = useState(match.creator === match.user_id);
-  const [canBeStarted, setCanBeStarted] = useState(match.participant1?.id || match.participant2?.id)
+  const [currentMatch, setCurrentMatch] = useState(match)
+
+  useEffect(() => {
+    console.warn('useEffect Match')
+    if (match && match !== undefined)
+      setCurrentMatch(match);
+  }, []);
+
+  useEffect(() => {
+    console.warn('useEffect currentMatch')
+    if (currentMatch?.maps) {
+      const results = currentMatch.maps.map((map) => ({
+        mapId: map.id,
+        winnerId: map.winner_id || null,
+        externalUrl: map.external_url || "",
+      }));
+      setMapResults(results);
+    }
+  }, [currentMatch]);
+
+  // console.log(currentMatch, match)
+  const [isCreator, setCreator] = useState(currentMatch.creator === currentMatch.user_id);
+  const [canBeStarted, setCanBeStarted] = useState(currentMatch.participant1?.id || currentMatch.participant2?.id)
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isStarted, setIsStarted] = useState(false);
   const [isFinished, setIsFinished] = useState(false); // Состояние для кнопки "Завершить матч"
   const [mapResults, setMapResults] = useState(
-    match.maps?.map((map) => ({
+    currentMatch.maps?.map((map) => ({
       mapId: map.id,
       winnerId: null, // Выбранный победитель
       externalUrl: map.external_url || "", // Ссылка на игру
     })) || []
   );
-  // setCreator(match.creator === match.user_id)
-  // console.log(match)
-  if (match.participant1?.user) {
-    match.participant1 = match.participant1.user
-    match.participant1.avatar = `${API_URL}/${match.participant1.avatar}`
-  }
-  if (match.participant2?.user) {
-    match.participant2 = match.participant2.user
-    match.participant2.avatar = `${API_URL}/${match.participant2.avatar}`
-  }
 
-  console.log(match)
-
+  if (currentMatch.participant1?.user) {
+    currentMatch.participant1 = currentMatch.participant1.user
+    currentMatch.participant1.avatar = `${API_URL}/${currentMatch.participant1.avatar}`
+  }
+  if (currentMatch.participant2?.user) {
+    currentMatch.participant2 = currentMatch.participant2.user
+    currentMatch.participant2.avatar = `${API_URL}/${currentMatch.participant2.avatar}`
+  }
   const openModal = () => {
     setIsModalOpen(true);
   };
@@ -61,12 +78,12 @@ export default function MatchCard({ match, className }) {
   // Компонент для блока с победителями
   const renderWinners = () => (
     <div className="match-details-modal__winners">
-      {match.maps?.map((map, index) => {
+      {currentMatch.maps?.map((map, index) => {
         const winner =
-          map.winner_id === match.participant1.id.toString()
-            ? match.participant1
-            : map.winner_id === match.participant2.id.toString()
-              ? match.participant2
+          map.winner_id === currentMatch.participant1.id.toString()
+            ? currentMatch.participant1
+            : map.winner_id === currentMatch.participant2.id.toString()
+              ? currentMatch.participant2
               : null;
         return (
           <div key={index} className="winner-block">
@@ -102,53 +119,54 @@ export default function MatchCard({ match, className }) {
   const renderOngoingMaps = () => (
     <div className="match-details-modal__ongoing">
 
-      {match.maps?.map((map, index) => {
+      {currentMatch.maps?.map((map, index) => {
         const result = mapResults[index];
+        console.log("Map results: ", mapResults)
         return (
           <div key={index} className="winner-block ongoin-maps">
-            {/* <div className="ongoing-block__title">Карта {index + 1}</div> */}
+            <div className="ongoing-block__title">Карта {index + 1}</div>
             <div className="ongoing-block__participants">
               <label className="winner-block__details">
                 <input
                   type="radio"
                   name={`winner-${map.id}`}
-                  value={match.participant1.id}
-                  checked={result.winnerId === match.participant1.id.toString()}
+                  value={currentMatch.participant1.id}
+                  checked={result?.winnerId?.toString() === currentMatch.participant1?.id?.toString() || false}
                   onChange={() =>
-                    updateMapResult(index, "winnerId", match.participant1.id.toString())
+                    updateMapResult(index, "winnerId", currentMatch.participant1.id.toString())
                   }
                   disabled={isFinished}
                 />
                 <img
-                  src={match.participant1.avatar || "2.png"}
+                  src={currentMatch.participant1.avatar || "2.png"}
                   alt="avatar"
                   className="winner-block__avatar"
                 />
-                <span>{match.participant1.name}</span>
+                <span>{currentMatch.participant1.name}</span>
               </label>
               <label className="winner-block__details">
                 <input
                   type="radio"
                   name={`winner-${map.id}`}
-                  value={match.participant2.id}
-                  checked={result.winnerId === match.participant2.id.toString()}
+                  value={currentMatch.participant2.id}
+                  checked={result?.winnerId?.toString() === currentMatch.participant2?.id?.toString() || false}
                   onChange={() =>
-                    updateMapResult(index, "winnerId", match.participant2.id.toString())
+                    updateMapResult(index, "winnerId", currentMatch.participant2.id.toString())
                   }
                   disabled={isFinished}
                 />
                 <img
-                  src={match.participant2.avatar || "3.png"}
+                  src={currentMatch.participant2.avatar || "3.png"}
                   alt="avatar"
                   className="winner-block__avatar"
                 />
-                <span>{match.participant2.name}</span>
+                <span>{currentMatch.participant2.name}</span>
               </label>
             </div>
             <TextInput
               id={`url-${map.id}`}
               // label="Ссылка на игру"
-              value={result.externalUrl}
+              value={result?.externalUrl}
               onChange={(e) => updateMapResult(index, "externalUrl", e.target.value)}
               placeholder="Введите ссылку на игру"
               disabled={isFinished}
@@ -159,8 +177,8 @@ export default function MatchCard({ match, className }) {
       <div className="match-details-modal__finish">
         <SubmitButton
           text="Завершить матч"
-          onClick={() => handleFinishMatch(match.tournament_id, match.id)}
-          disabled={isFinished || !mapResults.every((result) => result.winnerId)}
+          onClick={() => handleFinishMatch(currentMatch.tournament_id, currentMatch.id)}
+          disabled={isFinished || mapResults.length == 0 || !mapResults.every((result) => result.winnerId)}
           isSent={isFinished}
         />
       </div>
@@ -170,50 +188,60 @@ export default function MatchCard({ match, className }) {
   // Обновление результатов карты
   const updateMapResult = (index, field, value) => {
     const updatedResults = [...mapResults];
+    console.log("updateMapResults before ", updatedResults)
     updatedResults[index] = { ...updatedResults[index], [field]: value };
     setMapResults(updatedResults);
+    console.log("updateMapResults after ", updatedResults)
   };
 
   // Обработчик для кнопки "Начать"
   const handleStartMatch = async (tournamentId, matchId) => {
     try {
-      await startMatch(tournamentId, matchId);
+      const updated_data = await startMatch(tournamentId, matchId);
+      console.log("CurrentMatch before handleStart", currentMatch)
+      setCurrentMatch(updated_data.data.match)
       setIsStarted(true);
+
     } catch (error) {
       console.error('Ошибка при старте матча:', error);
       throw error;
     }
+    console.log("CurrentMatch after handleStart", currentMatch)
   };
 
   // Обработчик для кнопки "Завершить матч"
   const handleFinishMatch = async (tournamentId, matchId) => {
     try {
+      let updated_response = null;
       for (const res of mapResults) {
-        if (res.winnerId) {
-          // console.log(tournamentId, matchId, res.mapId, res.winnerId)
-          await completeMap(tournamentId, matchId, res.mapId, res.winnerId)
-        }
+        updated_response = await completeMap(tournamentId, matchId, res.mapId, res.winnerId || null);
       }
-      setIsFinished(true)
+      setCurrentMatch(updated_response.data.match);
+      setIsFinished(true);
+      closeModal();
+      // Вызываем onFinish для обновления родительского состояния
+      onFinish(matchId, updated_response.data.match);
     } catch (err) {
-      throw new Error(err.response?.data?.msg || "Ошибка при завершении матча");
+      console.log(err)
+      throw new Error(err.response?.data?.msg);
     }
   };
+
   return (
     <div className={`match-card ${className || ""}`}>
       <div className="match-card__header">
         <div className="match-card__header-left">
           <span
-            className={`match-card__status ${getMatchStatus(match.status).class
+            className={`match-card__status ${getMatchStatus(currentMatch.status).class
               }`}
           >
-            {getMatchStatus(match.status).text}
+            {getMatchStatus(currentMatch.status).text}
           </span>
-          <span className="match-card__number">Матч {match.number}</span>
+          <span className="match-card__number">Матч {currentMatch.number}</span>
         </div>
         <div className="match-card__header-right">
           <span className="match-card__format">
-            {match.format.toUpperCase()}
+            {currentMatch.format.toUpperCase()}
           </span>
           <ModalButton
             text={<DetailsIcon />}
@@ -225,64 +253,64 @@ export default function MatchCard({ match, className }) {
       <div className="match-card__teams">
         <div className="match-card__team">
           <img
-            src={match.participant1?.avatar || "4.png"}
+            src={currentMatch.participant1?.avatar || "4.png"}
             alt="avatar"
             className="match-card__avatar"
           />
-          <span className="match-card__name">{match.participant1?.name}</span>
-          <span className="match-card__score">{match.score1}</span>
+          <span className="match-card__name">{currentMatch.participant1?.name}</span>
+          <span className="match-card__score">{currentMatch.participant1_score}</span>
         </div>
         <div className="match-card__team">
           <img
-            src={match.participant2?.avatar || "5.png"}
+            src={currentMatch.participant2?.avatar || "5.png"}
             alt="avatar"
             className="match-card__avatar"
           />
-          <span className="match-card__name">{match.participant2?.name}</span>
-          <span className="match-card__score">{match.score2}</span>
+          <span className="match-card__name">{currentMatch.participant2?.name}</span>
+          <span className="match-card__score">{currentMatch.participant2_score}</span>
         </div>
       </div>
       <Modal isOpen={isModalOpen} onClose={closeModal}>
         <div className="match-details-modal">
-          <TitleH2 title={`Матч ${match.number}`} />
+          <TitleH2 title={`Матч ${currentMatch.number}`} />
           <div className="match-details-modal__header">
             <span
-              className={`match-card__status ${getMatchStatus(match.status).class
+              className={`match-card__status ${getMatchStatus(currentMatch.status).class
                 }`}
             >
-              {getMatchStatus(match.status).text}
+              {getMatchStatus(currentMatch.status).text}
             </span>
             <span className="match-card__format">
-              {match.format.toUpperCase()}
+              {currentMatch.format.toUpperCase()}
             </span>
           </div>
           <div className="match-details-modal__teams">
-            <p>{match.participant1?.name}</p>
+            <p>{currentMatch.participant1?.name}</p>
             <img
-              src={match.participant1?.avatar || "6.png"}
+              src={currentMatch.participant1?.avatar || "6.png"}
               alt="avatar"
               className="match-details-modal__avatar"
             />
             <span className="match-details-modal__score">
-              {match.score1} : {match.score2}
+              {currentMatch.participant1_score} : {currentMatch.participant2_score}
             </span>
             <img
-              src={match.participant2?.avatar || "7.png"}
+              src={currentMatch.participant2?.avatar || "7.png"}
               alt="avatar"
               className="match-details-modal__avatar"
             />
-            <p>{match.participant2?.name}</p>
+            <p>{currentMatch.participant2?.name}</p>
           </div>
-          {(isAdmin || isCreator) && canBeStarted && match.status === "scheduled" ? (
+          {(isAdmin || isCreator) && canBeStarted && currentMatch.status === "scheduled" ? (
             <div className="match-details-modal__start">
               <SubmitButton
                 text="Начать"
-                onClick={() => handleStartMatch(match.tournament_id, match.id)}
+                onClick={() => handleStartMatch(currentMatch.tournament_id, match.id)}
                 disabled={isStarted}
                 isSent={isStarted}
               />
             </div>
-          ) : (isAdmin || isCreator) && match.status === "ongoing" ? (
+          ) : ((isAdmin || isCreator) && currentMatch.status === "ongoing") ? (
             renderOngoingMaps()
           ) : (
             renderWinners()

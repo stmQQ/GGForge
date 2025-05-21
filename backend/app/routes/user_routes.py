@@ -150,7 +150,7 @@ def change_avatar():
 
     try:
         delete_image(user.avatar)
-        avatar_url = save_image(avatar_file, 'avatar', user_id=user_id)
+        avatar_url = save_image(avatar_file, 'avatar', entity_id=user_id)
     except ValueError as e:
         return jsonify({'msg': str(e)}), 400
 
@@ -386,7 +386,7 @@ def add_game_account():
 
     if existing_connection:
         existing_account = GameAccount.query.filter_by(
-            user_id=user_id,
+            user_id = user_id,
             connection_id=existing_connection.id
         ).first()
 

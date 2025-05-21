@@ -1,3 +1,6 @@
+import json
+
+from pytz import UTC
 from app.models import Tournament, Team, User, db
 from flask import request, jsonify
 from flask import Blueprint, request, jsonify
@@ -22,10 +25,12 @@ from app.schemas import (
 
 import traceback
 
-from app.services.user_service import save_image
+from app.services.user_service import get_user_profile, save_image
 
 tournament_bp = Blueprint('tournament', __name__,
                           url_prefix='/api/tournaments')
+
+API_URL = 'http://localhost:5000'
 
 
 def is_tournament_creator_or_admin(tournament_id: UUID):
@@ -75,10 +80,10 @@ def create_new_tournament():
         return jsonify({'msg': 'Некорректный формат game_id'}), 400
 
     try:
-        print(data['start_time'])
+        # print(data['start_time'])
         start_time = datetime.fromisoformat(
             data['start_time'].replace('Z', '+00:00'))
-        print(start_time)
+        # print(start_time)
     except (ValueError, TypeError):
         return jsonify({'msg': 'Неверный формат start_time (ожидается ISO, например: 2024-05-20T15:00:00Z)'}), 400
 
@@ -128,6 +133,8 @@ def create_new_tournament():
             max_participants=max_participants,
             prize_fund=prize_fund,
             status=status,
+            description=data['description'],
+            contact=data['contact'],
             has_group_stage=has_group_stage,
             has_playoff=data.get('has_playoff', 'true').lower() == 'true',
             num_groups=num_groups,
@@ -177,6 +184,34 @@ def get_tournaments_by_game_route(game_id: UUID):
         return tournament_schema.dump(tournaments), 200
     except ValueError:
         return jsonify({'msg': 'Игра не найдена'}), 404
+
+
+@tournament_bp.route('/nearest', methods=['GET'])
+def get_nearest_tournaments():
+    """Retrieve 4 nearest upcoming tournaments."""
+    try:
+        tournaments = Tournament.query.filter(
+            Tournament.start_time > datetime.now(UTC)
+        ).order_by(Tournament.start_time.asc()).limit(4).all()
+        print(tournaments)
+
+        tournament_schema = TournamentSchema(
+            many=True,
+            only=('id', 'title', 'start_time', 'banner_url', 'prize_fund')
+        )
+        response = tournament_schema.dump(tournaments)
+
+        # Обрабатываем banner_url
+        for tournament in response:
+            tournament['banner_url'] = (
+                'static/tournaments/default.png'
+                if not tournament['banner_url']
+                else tournament['banner_url']
+            )
+
+        return jsonify({'data': response}), 200
+    except Exception:
+        return jsonify({'msg': 'Ошибка при получении турниров'}), 500
 
 
 @tournament_bp.route('/participant/me', methods=['GET'])
@@ -466,7 +501,6 @@ def register_for_tournament_route(tournament_id: UUID):
         return jsonify({'msg': 'Некорректный формат user_id'}), 400
 
     data = request.get_json()
-    print(data)
     if not data:
         return jsonify({'msg': 'Отсутствуют данные'}), 400
 
@@ -613,7 +647,8 @@ def delete_tournament(tournament_id: UUID):
     # Удаление турнира (каскадно удалит связанные данные)
     scheduled = ScheduledTournament.query.filter_by(
         tournament_id=tournament_id).first()
-    db.session.delete(scheduled)
+    if scheduled:
+        db.session.delete(scheduled)
     db.session.delete(tournament)
 
     # Удаление запланированной задачи
@@ -635,42 +670,52 @@ def complete_map_route(tournament_id, match_id, map_id):
         tournament_id = UUID(tournament_id)
         match_id = UUID(match_id)
         map_id = UUID(map_id)
+
         data = request.get_json()
-        if not data or "winner_id" not in data:
-            return jsonify({"msg": "winner_id is required"}), 400
-        winner_id = UUID(data["winner_id"])
+        if not data:
+            return jsonify({"msg": "Request body is required"}), 400
+
+        # winner_id может быть null (для ничьей)
+        winner_id = data.get("winner_id")
+        if winner_id is not None:
+            winner_id = UUID(winner_id)
+
         updated_map = complete_map(tournament_id, match_id, map_id, winner_id)
         updated_match = get_match(tournament_id, match_id)
-        if updated_match.status == "completed":
-            return jsonify({
-                "msg": "Map and match completed",
-                "map": {
-                    "id": str(updated_map.id),
-                    "match_id": str(updated_map.match_id),
-                    "winner_id": str(updated_map.winner_id)
-                },
-                "match": {
-                    "id": str(updated_match.id),
-                    "status": updated_match.status,
-                    "winner_id": str(updated_match.winner_id) if updated_match.winner_id else None,
-                    "score1": updated_match.participant1_score,
-                    "score2": updated_match.participant2_score
-                }
-            }), 200
-        return jsonify({
+        participant1 = get_user_profile(updated_match.participant1_id)
+        participant2 = get_user_profile(updated_match.participant2_id)
+
+        map_schema = MapSchema()
+        match_schema = MatchSchema()
+
+        serialized_map = map_schema.dump(updated_map)
+        serialized_match = match_schema.dump(updated_match)
+        serialized_match["participant1"] = participant1
+        serialized_match["participant2"] = participant2
+
+        serialized_match["participant1"]["avatar"] = (
+            f"{API_URL}/{serialized_match['participant1']['avatar']}"
+            if serialized_match["participant1"]["avatar"]
+            else None
+        )
+        serialized_match["participant2"]["avatar"] = (
+            f"{API_URL}/{serialized_match['participant2']['avatar']}"
+            if serialized_match["participant2"]["avatar"]
+            else None
+        )
+
+        response = {
             "msg": "Map updated",
-            "map": {
-                "id": str(updated_map.id),
-                "match_id": str(updated_map.match_id),
-                "winner_id": str(updated_map.winner_id)
-            },
-            "match": {
-                "id": str(updated_match.id),
-                "status": updated_match.status,
-                "score1": updated_match.participant1_score,
-                "score2": updated_match.participant2_score
-            }
-        }), 200
+            "map": serialized_map,
+            "match": serialized_match
+        }
+
+        if updated_match.status == "completed":
+            response["msg"] = "Map and match completed"
+
+        print(response)
+        return jsonify(response), 200
+
     except ValueError as e:
         return jsonify({"msg": str(e)}), 422
     except IntegrityError as e:
@@ -783,6 +828,12 @@ def start_match_route(tournament_id, match_id):
         # Serialize match using MatchSchema
         match_schema = MatchSchema()
         match_data = match_schema.dump(updated_match)
+        participant1 = get_user_profile(updated_match.participant1_id)
+        participant2 = get_user_profile(updated_match.participant2_id)
+        match_data["participant1"] = participant1
+        match_data["participant2"] = participant2
+        match_data["participant1"]["avatar"] = f"{API_URL}/{match_data['participant1']['avatar']}" if match_data["participant1"]["avatar"] else None
+        match_data["participant2"]["avatar"] = f"{API_URL}/{match_data['participant2']['avatar']}" if match_data["participant2"]["avatar"] else None
 
         return jsonify({
             "msg": "Match started",

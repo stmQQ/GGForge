@@ -77,27 +77,29 @@ export default function TournamentPage() {
       : team.data || defaultParticipant;
   };
 
-  const handleMatchFinish = async (matchId, mapId, winnerId) => {
+  const handleMatchFinish = async (matchId, updatedMatch) => {
     try {
-      const response = await completeMap(id, matchId, mapId, winnerId);
       // Обновляем состояние матчей
-      const updatedMatches = matches.map((match) =>
-        match.id === matchId
-          ? {
-            ...match,
-            status: response.match.status,
-            score1: response.match.score1,
-            score2: response.match.score2,
-            maps: match.maps.map((map) =>
-              map.id === mapId ? { ...map, winner_id: response.map.winner_id } : map
-            ),
-          }
-          : match
+      setMatches((prevMatches) =>
+        prevMatches.map((match) =>
+          match.id === matchId
+            ? {
+              ...match,
+              status: updatedMatch.status,
+              participant1_score: updatedMatch.participant1_score || 0,
+              participant2_score: updatedMatch.participant2_score || 0,
+              maps: updatedMatch.maps.map((map) => ({
+                id: map.id,
+                external_url: map.external_url,
+                winner_id: map.winner_id,
+              })),
+            }
+            : match
+        )
       );
-      setMatches(updatedMatches);
 
       // Если матч завершён, обновляем данные плей-офф или группового этапа
-      if (response.match.status === "completed") {
+      if (updatedMatch.status === "completed") {
         const matchesResponse = await getAllTournamentMatches(id);
         setMatches(
           matchesResponse.data.map((m) => ({
@@ -105,10 +107,10 @@ export default function TournamentPage() {
             number: m.number,
             participant1: m.participant1 || m.team1 || defaultParticipant,
             participant2: m.participant2 || m.team2 || defaultParticipant,
-            score1: m.participant1_score || 0,
-            score2: m.participant2_score || 0,
+            participant1_score: m.participant1_score || 0,
+            participant2_score: m.participant2_score || 0,
             status: m.status,
-            isCreator,
+            creator: tournament.manager.id,
             format: m.format || "BO1",
             maps: m.maps.map((map) => ({
               id: map.id,
@@ -119,6 +121,92 @@ export default function TournamentPage() {
             playoff_match: m.playoff_match ? { round_number: m.playoff_match.round_number } : null,
           }))
         );
+
+        // Обновляем плей-офф, если матч был в плей-офф
+        const playoffStageResponse = await getTournamentPlayoffStage(id);
+        const playoffMatches = playoffStageResponse.data.playoff_matches;
+        const finalMatch = playoffMatches.length > 0 ? playoffMatches[playoffMatches.length - 1] : null;
+
+        const rounds = await playoffMatches
+          .slice(0, -1)
+          .reduce(async (accPromise, m) => {
+            const acc = await accPromise;
+            const round = acc.find((r) => r.letter === m.round_number);
+
+            const [participant1Data, participant2Data] = await Promise.all([m.match.participant1_id && m.match.participant1_id !== "undefined" ? getParticipantUser(m.match.participant1_id) : m.match.team1_id && m.match.team1_id !== "undefined" ? getParticipantTeam(m.match.team1_id) : defaultParticipant, m.match.participant2_id && m.match.participant2_id !== "undefined" ? getParticipantUser(m.match.participant2_id) : m.match.team2_id && m.match.team2_id !== "undefined" ? getParticipantTeam(m.match.team2_id) : defaultParticipant,]);
+            console.log(participant1Data)
+            if (participant1Data.user) participant1Data.user.avatar = `${API_URL}/${participant1Data.user.avatar}`
+            if (participant2Data.user) participant2Data.user.avatar = `${API_URL}/${participant2Data.user.avatar}`
+            console.log(participant1Data)
+            const match = {
+              id: m.match.id,
+              tournament_id: tournament.id,
+              number: m.match.number,
+              participant1: participant1Data.user || participant1Data,
+              participant2: participant2Data.user || participant2Data,
+              participant1_score: m.match.participant1_score || 0,
+              participant2_score: m.match.participant2_score || 0,
+              status: m.match.status,
+              creator: tournament.manager.id,
+              user_id: currentUserId,
+              format: m.match.format || "BO1",
+              maps: m.match.maps.map((map) => ({
+                id: map.id,
+                external_url: map.external_url,
+                winner_id: map.winner_id,
+              })),
+            };
+
+            if (round) {
+              round.matches.push(match);
+            } else {
+              acc.push({ id: m.id, letter: m.round_number, matches: [match] });
+            }
+
+            return acc;
+          }, Promise.resolve([]));
+
+        let final = {
+          id: "final",
+          number: "final",
+          participant1: defaultParticipant,
+          participant2: defaultParticipant,
+          participant1_score: 0,
+          participant2_score: 0,
+          status: "scheduled",
+          creator: tournament.manager.id,
+          user_id: currentUserId,
+          format: "BO1",
+          maps: [],
+        };
+
+        if (finalMatch) {
+          const [finalParticipant1, finalParticipant2] = await Promise.all([finalMatch.match.participant1_id && finalMatch.match.participant1_id !== "undefined" ? getParticipantUser(finalMatch.match.participant1_id) : finalMatch.match.team1_id && finalMatch.match.team1_id !== "undefined" ? getParticipantTeam(finalMatch.match.team1_id) : defaultParticipant, finalMatch.match.participant2_id && finalMatch.match.participant2_id !== "undefined" ? getParticipantUser(finalMatch.match.participant2_id) : finalMatch.match.team2_id && finalMatch.match.team2_id !== "undefined" ? getParticipantTeam(finalMatch.match.team2_id) : defaultParticipant,]);
+
+          final = {
+            id: finalMatch.match.id,
+            tournament_id: tournament.id,
+            number: finalMatch.match.number || finalMatch.match.id,
+            participant1: finalParticipant1,
+            participant2: finalParticipant2,
+            participant1_score: finalMatch.match.participant1_score || 0,
+            participant2_score: finalMatch.match.participant2_score || 0,
+            status: finalMatch.match.status,
+            creator: tournament.manager.id,
+            user_id: currentUserId,
+            format: finalMatch.match.format || "BO1",
+            maps: finalMatch.match.maps.map((map) => ({
+              id: map.id,
+              external_url: map.external_url,
+              winner_id: map.winner_id,
+            })),
+          };
+        }
+
+        setPlayoffStage({
+          rounds,
+          final,
+        });
       }
     } catch (err) {
       setError(err.message);
@@ -175,7 +263,6 @@ export default function TournamentPage() {
         // Групповой этап
         if (tournamentData.group_stage) {
           const groupStageResponse = await getTournamentGroupStage(id);
-          console.log(groupStageResponse)
 
           const groups = await Promise.all(
             groupStageResponse.data.groups.map(async (g) => {
@@ -203,7 +290,6 @@ export default function TournamentPage() {
 
               const matches = await Promise.all(
                 g.matches.map(async (m) => {
-                  console.log(g)
 
                   const [participant1Data, participant2Data] = await Promise.all([
                     m.participant1_id && m.participant1_id !== "undefined"
@@ -225,12 +311,12 @@ export default function TournamentPage() {
                   return {
                     id: m.id,
                     tournament_id: m.tournament_id,
-                    // winner_id: m.winner_id,
+                    winner_id: m.winner_id,
                     number: m.number || m.id,
                     participant1: participant1Data.user || participant1Data,
                     participant2: participant2Data.user || participant2Data,
-                    score1: m.participant1_score || 0,
-                    score2: m.participant2_score || 0,
+                    participant1_score: m.participant1_score || 0,
+                    participant2_score: m.participant2_score || 0,
                     status: m.status,
                     creator: tournamentData.creator.id,
                     user_id: currentUserId,
@@ -289,8 +375,8 @@ export default function TournamentPage() {
               number: m.match.number,
               participant1: participant1Data.user || participant1Data,
               participant2: participant2Data.user || participant2Data,
-              score1: m.match.participant1_score || 0,
-              score2: m.match.participant2_score || 0,
+              participant1_score: m.match.participant1_score || 0,
+              participant2_score: m.match.participant2_score || 0,
               status: m.match.status,
               creator: tournamentData.creator.id,
               user_id: currentUserId,
@@ -318,8 +404,8 @@ export default function TournamentPage() {
           number: "final",
           participant1: defaultParticipant,
           participant2: defaultParticipant,
-          score1: 0,
-          score2: 0,
+          participant1_score: 0,
+          participant2_score: 0,
           status: "scheduled",
           creator: tournamentData.creator.id,
           user_id: currentUserId,
@@ -348,8 +434,8 @@ export default function TournamentPage() {
             number: finalMatch.match.number || finalMatch.match.id,
             participant1: finalParticipant1,
             participant2: finalParticipant2,
-            score1: finalMatch.match.participant1_score || 0,
-            score2: finalMatch.match.participant2_score || 0,
+            participant1_score: finalMatch.match.participant1_score || 0,
+            participant2_score: finalMatch.match.participant2_score || 0,
             status: finalMatch.match.status,
             creator: tournamentData.creator.id,
             user_id: currentUserId,
@@ -392,8 +478,8 @@ export default function TournamentPage() {
             number: m.number,
             participant1: m.participant1 || m.team1 || defaultParticipant,
             participant2: m.participant2 || m.team2 || defaultParticipant,
-            score1: m.participant1_score || 0,
-            score2: m.participant2_score || 0,
+            participant1_score: m.participant1_score || 0,
+            participant2_score: m.participant2_score || 0,
             status: m.status,
             creator: tournamentData.creator.id,
             format: m.format || "BO1",
@@ -545,7 +631,7 @@ export default function TournamentPage() {
       <div className="bracket-column__matches">
         {round.matches.map((match) => (
           <div key={match.id} className="bracket-match-wrapper">
-            <MatchCard match={match} className="match-card--bracket" />
+            <MatchCard match={match} className="match-card--bracket" onFinish={handleMatchFinish} />
           </div>
         ))}
       </div>
@@ -557,7 +643,7 @@ export default function TournamentPage() {
       <h3 className="bracket-column__title">Финал</h3>
       <div className="bracket-column__matches">
         <div className="bracket-match-wrapper">
-          <MatchCard match={playoffStage.final} className="match-card--bracket" />
+          <MatchCard match={playoffStage.final} className="match-card--bracket" onFinish={handleMatchFinish} />
         </div>
       </div>
     </div>
@@ -579,6 +665,7 @@ export default function TournamentPage() {
           className="avatar-uploader"
           src={tournament.img}
           alt={tournament.title}
+          loading="lazy"
           onError={(e) => (e.target.src = `${API_URL}/static/tournaments/default/trnt_${tournament.game.title.replace(/\s+/g, '')}.png`)}
         />
         <div className="tournament-page__header-left">
@@ -625,6 +712,7 @@ export default function TournamentPage() {
                     src={tournament.manager.avatar}
                     alt="Organizer avatar"
                     className="tournament-page__overview-organizer-avatar"
+                    loading="lazy"
                   />
                   <span className="tournament-page__overview-organizer-name">
                     {tournament.manager.name}
@@ -636,7 +724,7 @@ export default function TournamentPage() {
                 <p className="tournament-page__overview-card-content">
                   {tournament.contact ? (
                     <a
-                      href={`https://t.me/${tournament.contact.replace("@", "")}`}
+                      href={tournament.contact}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="tournament-page__overview-contact-link"
@@ -711,7 +799,7 @@ export default function TournamentPage() {
               </div>
             )}
             {activeStage === "final" && playoffStage && (
-              <MatchCard key={playoffStage.final.id} match={playoffStage.final} />
+              <MatchCard key={playoffStage.final.id} match={playoffStage.final} onFinish={handleMatchFinish} />
             )}
           </>
         )}
@@ -791,16 +879,18 @@ export default function TournamentPage() {
                 <span>Ник</span>
                 <span>Приз</span>
               </div>
-              {prizeTable.rows.map((p) => (
-                <div className="tournament-page__prizes-row" key={p.id}>
-                  <span>{p.place}</span>
-                  <Link to={tournament.p ? `/team/${p.id}` : `/profile/${p.id}`} className="tournament-page__team-link">
-                    <img src={p.avatar} alt="avatar" className="team-avatar" />
-                    {p.name}
-                  </Link>
-                  <span>{p.prize ? `${parseInt(p.prize).toLocaleString()}₽` : "-"}</span>
-                </div>
-              ))}
+              {[...prizeTable.rows]
+                .sort((a, b) => a.place - b.place)
+                .map((p) => (
+                  <div className="tournament-page__prizes-row" key={p.id}>
+                    <span>{p.place}</span>
+                    <Link to={tournament.p ? `/team/${p.id}` : `/profile/${p.id}`} className="tournament-page__team-link">
+                      <img src={p.avatar} alt="avatar" className="team-avatar" />
+                      {p.name}
+                    </Link>
+                    <span>{p.prize ? `${parseInt(p.prize).toLocaleString()}₽` : "-"}</span>
+                  </div>
+                ))}
             </div>
           ) : (
             <p className="tournament-page__not-completed">

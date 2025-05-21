@@ -35,7 +35,7 @@ export default function MyProfile() {
   // Синхронизация данных пользователя
   useEffect(() => {
     if (user) {
-      setAvatar(user.avatar ? `${API_URL}${user.avatar}` : DEFAULT_AVATAR);
+      setAvatar(user.avatar ? `${API_URL}/${user.avatar}` : DEFAULT_AVATAR);
       setFormValues((prev) => ({ ...prev, name: user.name || '' }));
     }
   }, [user]);
@@ -67,7 +67,7 @@ export default function MyProfile() {
       setIsLoading(true);
       const res = await changeAvatar(file);
       const newAvatar = res.data.avatar;
-      const avatarUrl = newAvatar ? `${API_URL}${newAvatar}` : DEFAULT_AVATAR;
+      const avatarUrl = newAvatar ? `${API_URL}/${newAvatar}` : DEFAULT_AVATAR;
       setAvatar(avatarUrl);
       updateUser({ avatar: newAvatar });
       setError('');

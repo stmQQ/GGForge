@@ -8,6 +8,10 @@ export const getTournamentsByGame = async (gameId) => {
   return api.get(`/tournaments/game/${gameId}`);
 };
 
+export const getNearestTournaments = async () => {
+  return api.get('/tournaments/nearest')
+};
+
 export const getParticipantTournaments = async () => {
   return api.get('/tournaments/participant/me');
 };

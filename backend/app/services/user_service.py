@@ -73,7 +73,7 @@ def get_user_profile(user_id):
         "name": user.name,
         "email": user.email,
         "avatar": user.avatar,
-        "admin_role": user.admin_role,
+        "is_admin": user.is_admin,
         "is_banned": user.is_banned,
         "ban_until": user.ban_until,
     }
@@ -139,7 +139,7 @@ def save_image(file_storage, image_type, entity_id=None):
     file_storage.save(save_path)
 
     # Возвращаем относительный путь
-    return f"/{base_path}/{sub_path}/{filename}"
+    return f"{base_path}/{sub_path}/{filename}"
 
 
 def delete_image(image_path):

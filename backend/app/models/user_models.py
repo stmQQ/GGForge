@@ -94,7 +94,7 @@ class Connection(db.Model):
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     service_name = db.Column(db.String(64), nullable=False)
-    external_user_url = db.Column(db.String(256), nullable=True, unique=True)
+    external_user_url = db.Column(db.String(256), nullable=True)
 
     user_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
         'users.id'), nullable=False)

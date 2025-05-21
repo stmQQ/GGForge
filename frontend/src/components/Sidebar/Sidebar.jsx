@@ -50,7 +50,7 @@ export default function Sidebar({ isOpen, onClose }) {
       <nav className={`sidebar ${isOpen ? "sidebar--open" : ""}`}>
         <div className="sidebar__logo">
           <Link to="/" className="sidebar__link" onClick={onClose}>
-            <img src={logo} alt="Главная" />
+            <img src={logo} alt="Главная" loading="lazy" />
           </Link>
         </div>
 

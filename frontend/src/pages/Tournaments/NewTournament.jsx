@@ -40,10 +40,6 @@ export default function NewTournamentPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!tournamentName || tournamentName.length < 3) {
-      setError("Название турнира должно быть не короче 3 символов");
-      return;
-    }
     if (!date || !time) {
       setError("Укажите дату и время");
       return;
@@ -59,10 +55,14 @@ export default function NewTournamentPage() {
       setError("Некорректный формат призового фонда");
       return;
     }
-    if (contact && !/^[^\s@]+@[^\s@]+\.[^\s@]+$|^(\+?\d{1,3}[- ]?)?\d{10}$/.test(contact)) {
-      setError("Некорректный формат контакта (email или телефон)");
+    if (
+      contact &&
+      !/^([^\s@]+@[^\s@]+\.[^\s@]+|@[\w\d_]{5,32}|https?:\/\/(t\.me|vk\.com)\/[\w\d_]{3,32}|vk\.com\/[\w\d_]{3,32})$/.test(contact.trim())
+    ) {
+      setError("Некорректный формат контакта (email, ссылка на Telegram или VK)");
       return;
     }
+
 
     const maxParticipants = groupStage ? selectedSlots : slots;
     const numGroups = groupStage ? (maxParticipants <= 16 ? 2 : 4) : undefined;
@@ -98,14 +98,12 @@ export default function NewTournamentPage() {
       if (value !== undefined) tournamentData.append(key, value);
     });
     if (imageFile) tournamentData.append("img", imageFile);
-    for (let [key, value] of tournamentData.entries()) {
-      console.log(`${key}: ${value}`);
-    }
+
 
     try {
       const response = await createTournament(tournamentData);
       setError("");
-      navigate(`/tournaments/${response.data.tournament.id}`);
+      navigate(`/tournament/${response.data.tournament.id}`);
     } catch (err) {
       setError(err.response?.data?.msg || "Ошибка создания турнира");
     }

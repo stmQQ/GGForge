@@ -67,9 +67,6 @@ class PlayoffStageMatch(db.Model):
         'playoff_stages.id', ondelete='CASCADE'), nullable=False)
     playoff_stage = db.relationship(
         'PlayoffStage', back_populates='playoff_matches')
-
-    # match_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
-    #     'matches.id', nullable=False, unique=True))
     match = db.relationship(
         'Match', back_populates='playoff_match', uselist=False, cascade='all, delete-orphan')
 

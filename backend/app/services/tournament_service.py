@@ -245,6 +245,8 @@ def create_tournament(
     start_time: datetime,
     max_participants: int = 32,
     prize_fund: float = None,
+    description: str = None,
+    contact: str = None,
     status: str = "setup",
     has_group_stage: bool = False,
     has_playoff: bool = True,
@@ -323,7 +325,9 @@ def create_tournament(
         type=game.type,
         status=status,
         match_format=format_,
-        final_format=final_format_
+        final_format=final_format_,
+        description=description,
+        contact=contact
     )
 
     try:
@@ -387,6 +391,7 @@ def create_tournament(
                 job_id=job_id
             )
         db.session.add(scheduled)
+        db.session.commit()
         return tournament
 
     except IntegrityError as e:
@@ -1079,16 +1084,16 @@ def generate_single_elimination_bracket(tournament_id: UUID, participants: list[
     return playoff_stage
 
 
-def complete_map(tournament_id: UUID, match_id: UUID, map_id: UUID, winner_id: UUID):
+def complete_map(tournament_id: UUID, match_id: UUID, map_id: UUID, winner_id: UUID | None):
     """
-    Complete a map by setting its winner, updating match scores, and completing the match if enough wins.
-    Handles cases with one participant.
+    Complete a map by setting its winner, updating match scores, and completing the match if needed.
+    Handles cases with one participant and draws (winner_id=None).
 
     Args:
         tournament_id: The UUID of the tournament.
         match_id: The UUID of the match.
         map_id: The UUID of the map.
-        winner_id: The UUID of the winner (User or Team).
+        winner_id: The UUID of the winner (User or Team), or None for a draw.
 
     Returns:
         Map: The updated map object.
@@ -1098,20 +1103,19 @@ def complete_map(tournament_id: UUID, match_id: UUID, map_id: UUID, winner_id: U
     """
     match = get_match(tournament_id, match_id)
     if match.status not in ["ongoing", "scheduled"]:
-        raise ValueError(f"Match must be in 'ongoing' or 'scheduled' status")
+        raise ValueError("Match must be in 'ongoing' or 'scheduled' status")
 
     map_ = Map.query.get(map_id)
     if not map_ or map_.match_id != match_id:
         raise ValueError("Map not found or does not belong to the match")
 
-    if map_.winner_id:
+    if map_.winner_id is not None:
         raise ValueError("Map already completed")
 
     # Handle case with one participant
     if (match.participant1_id and not match.participant2_id) or (match.participant2_id and not match.participant1_id):
         winner_id = match.participant1_id or match.participant2_id
-    else:
-        # Validate winner for matches with two participants
+    elif winner_id is not None:  # Validate winner_id only if it's not None
         winner = User.query.get(winner_id) or Team.query.get(winner_id)
         if not winner:
             raise ValueError("Winner not found")
@@ -1122,7 +1126,7 @@ def complete_map(tournament_id: UUID, match_id: UUID, map_id: UUID, winner_id: U
         # Update map
         map_.winner_id = winner_id
 
-        # Update match scores
+        # Update match scores (do not increment scores for a draw)
         if winner_id == match.participant1_id:
             match.participant1_score += 1
         elif winner_id == match.participant2_id:
@@ -1131,17 +1135,26 @@ def complete_map(tournament_id: UUID, match_id: UUID, map_id: UUID, winner_id: U
         db.session.add(map_)
         db.session.add(match)
 
-        # Check if match should be completed
-        if match.format.startswith("bo"):
-            num_maps = int(match.format[2:])
-            if match.participant1_score > num_maps // 2:
-                complete_match(tournament_id, match_id, match.participant1_id)
-            elif match.participant2_score > num_maps // 2:
-                complete_match(tournament_id, match_id, match.participant2_id)
-            elif match.participant1_id and not match.participant2_id:
-                complete_match(tournament_id, match_id, match.participant1_id)
-            elif match.participant2_id and not match.participant1_id:
-                complete_match(tournament_id, match_id, match.participant2_id)
+        # Check if all maps are completed and handle match completion
+        if all(m.winner_id is not None for m in match.maps):
+            if match.format.startswith("bo"):
+                num_maps = int(match.format[2:])
+                # Handle BO2 draw case
+                if match.format == "bo2" and match.participant1_score == 1 and match.participant2_score == 1:
+                    complete_match(tournament_id, match_id, None)  # Draw
+                elif match.participant1_score > num_maps // 2:
+                    complete_match(tournament_id, match_id,
+                                   match.participant1_id)
+                elif match.participant2_score > num_maps // 2:
+                    complete_match(tournament_id, match_id,
+                                   match.participant2_id)
+                elif match.participant1_id and not match.participant2_id:
+                    complete_match(tournament_id, match_id,
+                                   match.participant1_id)
+                elif match.participant2_id and not match.participant1_id:
+                    complete_match(tournament_id, match_id,
+                                   match.participant2_id)
+
         db.session.commit()
         return map_
 
@@ -1603,7 +1616,7 @@ def assign_participants_to_playoff_stage(tournament_id: UUID):
     else:
         participants = tournament.teams if tournament.type == "team" else tournament.participants
 
-    print("Participants: ", participants)
+    # print("Participants: ", participants)
 
     if len(participants) < 2:
         raise ValueError("Insufficient participants for playoff stage")
@@ -1624,14 +1637,14 @@ def assign_participants_to_playoff_stage(tournament_id: UUID):
             round_number="1",
             bracket="winner"
         ).order_by(PlayoffStageMatch.id).all()
-        print("FRM", first_round_matches)
+        # print("FRM", first_round_matches)
 
         # Distribute participants
         participant_index = 0
         for match in first_round_matches:
             match.match.participant1_id = participants[participant_index].id if participant_index < len(
                 participants) else None
-            print(match.match.participant1_id)
+            # print(match.match.participant1_id)
             participant_index += 1
             match.match.participant2_id = participants[participant_index].id if participant_index < len(
                 participants) else None
@@ -1979,7 +1992,7 @@ def assign_participants_to_group_matches(tournament_id: UUID):
                     match = matches[match_index]
                     match.participant1_id = participants[i].id
                     match.participant2_id = participants[j].id
-                    print(match.participant1_id, match.participant2_id)
+                    # print(match.participant1_id, match.participant2_id)
                     if not match.participant2_id and not match.participant1_id:
                         match.status = 'cancelled'
                     db.session.add(match)
