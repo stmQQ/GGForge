@@ -2,7 +2,7 @@ import "./userInfo.scss";
 import TitleH2 from "../TitleH2/TitleH2";
 
 export default function UserInfo({ user, avatar }) {
-  console.log(user)
+  console.log("INFOOO    ", user)
   return (
     <div className="profile__info">
       <TitleH2 title={user.name} />

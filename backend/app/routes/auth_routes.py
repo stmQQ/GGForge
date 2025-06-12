@@ -77,7 +77,8 @@ def login():
     access_token = create_access_token(identity=str(
         user.id), expires_delta=timedelta(minutes=30))
     refresh_token = create_refresh_token(identity=str(user.id))
-
+    db.session.add(user)
+    db.session.commit()
     user_schema = UserSchema(only=('id', 'name', 'email', 'avatar', 'is_online', 'registration_date'))
     return {
         'access_token': access_token,

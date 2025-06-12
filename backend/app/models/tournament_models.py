@@ -21,6 +21,7 @@ class Tournament(db.Model):
     final_format = db.Column(db.String(8))
     description = db.Column(db.Text)
     contact = db.Column(db.String(32))
+    highlight_url = db.Column(db.String(256))
 
     game_id = db.Column(UUID(as_uuid=True), db.ForeignKey(
         'games.id'), nullable=False)

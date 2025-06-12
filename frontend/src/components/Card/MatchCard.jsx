@@ -1,3 +1,4 @@
+/* eslint-disable react/prop-types */
 import "./matchCard.scss";
 import { useState, useContext, useEffect } from "react";
 import Modal from "../../components/Modal/Modal.jsx";
@@ -9,9 +10,9 @@ import SubmitButton from "../Button/SubmitButton.jsx";
 import TextInput from "../InputFields/TextInput.jsx";
 import { API_URL } from "../../constants.js";
 import { AuthContext } from "../../context/AuthContext.jsx";
-import { startMatch, completeMap } from "../../api/tournaments.js";
+import { startMatch, completeMap, addHighlightUrl } from "../../api/tournaments.js";
 
-export default function MatchCard({ match, className, onFinish }) {
+export default function MatchCard({ match, className, onFinish, final_match = false }) {
   const getMatchStatus = (status) => {
     switch (status) {
       case "scheduled":
@@ -29,13 +30,11 @@ export default function MatchCard({ match, className, onFinish }) {
   const [currentMatch, setCurrentMatch] = useState(match)
 
   useEffect(() => {
-    console.warn('useEffect Match')
     if (match && match !== undefined)
       setCurrentMatch(match);
   }, []);
 
   useEffect(() => {
-    console.warn('useEffect currentMatch')
     if (currentMatch?.maps) {
       const results = currentMatch.maps.map((map) => ({
         mapId: map.id,
@@ -59,6 +58,7 @@ export default function MatchCard({ match, className, onFinish }) {
       externalUrl: map.external_url || "", // Ссылка на игру
     })) || []
   );
+  const [highlightUrl, setHighlightUrl] = useState("");
 
   if (currentMatch.participant1?.user) {
     currentMatch.participant1 = currentMatch.participant1.user
@@ -121,7 +121,6 @@ export default function MatchCard({ match, className, onFinish }) {
 
       {currentMatch.maps?.map((map, index) => {
         const result = mapResults[index];
-        console.log("Map results: ", mapResults)
         return (
           <div key={index} className="winner-block ongoin-maps">
             <div className="ongoing-block__title">Карта {index + 1}</div>
@@ -174,10 +173,21 @@ export default function MatchCard({ match, className, onFinish }) {
           </div>
         );
       })}
+
+      {final_match == true && (
+        <TextInput
+          id={`highlight-url-match-${match.id}`}
+          value={highlightUrl}
+          onChange={(e) => setHighlightUrl(e.target.value)}
+          placeholder="Ссылка на самый яркий момент игры"
+          disabled={isFinished}
+        />
+      )}
+
       <div className="match-details-modal__finish">
         <SubmitButton
           text="Завершить матч"
-          onClick={() => handleFinishMatch(currentMatch.tournament_id, currentMatch.id)}
+          onClick={() => handleFinishMatch(currentMatch.tournament_id, currentMatch.id, highlightUrl)}
           disabled={isFinished || mapResults.length == 0 || !mapResults.every((result) => result.winnerId)}
           isSent={isFinished}
         />
@@ -188,17 +198,14 @@ export default function MatchCard({ match, className, onFinish }) {
   // Обновление результатов карты
   const updateMapResult = (index, field, value) => {
     const updatedResults = [...mapResults];
-    console.log("updateMapResults before ", updatedResults)
     updatedResults[index] = { ...updatedResults[index], [field]: value };
     setMapResults(updatedResults);
-    console.log("updateMapResults after ", updatedResults)
   };
 
   // Обработчик для кнопки "Начать"
   const handleStartMatch = async (tournamentId, matchId) => {
     try {
       const updated_data = await startMatch(tournamentId, matchId);
-      console.log("CurrentMatch before handleStart", currentMatch)
       setCurrentMatch(updated_data.data.match)
       setIsStarted(true);
 
@@ -206,15 +213,17 @@ export default function MatchCard({ match, className, onFinish }) {
       console.error('Ошибка при старте матча:', error);
       throw error;
     }
-    console.log("CurrentMatch after handleStart", currentMatch)
   };
 
   // Обработчик для кнопки "Завершить матч"
-  const handleFinishMatch = async (tournamentId, matchId) => {
+  const handleFinishMatch = async (tournamentId, matchId, highlightUrl = '') => {
     try {
       let updated_response = null;
       for (const res of mapResults) {
         updated_response = await completeMap(tournamentId, matchId, res.mapId, res.winnerId || null);
+      }
+      if (highlightUrl) {
+        await addHighlightUrl(tournamentId, highlightUrl);
       }
       setCurrentMatch(updated_response.data.match);
       setIsFinished(true);

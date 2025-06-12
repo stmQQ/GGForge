@@ -1981,7 +1981,7 @@ def assign_participants_to_group_matches(tournament_id: UUID):
                 raise ValueError(
                     f"Insufficient matches for group {group.letter}")
             for m in matches[expected_matches:]:
-                m.status = 'cancelled'
+                m.status = 'cancelled' #TODO Fix
 
             # Назначаем участников матчам в формате round-robin
             match_index = 0

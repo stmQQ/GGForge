@@ -99,3 +99,7 @@ export const completeMatch = async (tournamentId, matchId, winnerId) => {
 export const startMatch = async (tournamentId, matchId) => {
   return api.post(`/tournaments/${tournamentId}/matches/${matchId}/start`);
 };
+
+export const addHighlightUrl = async (tournamentId, highlightUrl) => {
+  return api.patch(`/tournaments/${tournamentId}/highlight`, { highlight_url: highlightUrl });
+}

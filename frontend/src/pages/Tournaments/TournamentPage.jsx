@@ -1,5 +1,5 @@
 import { useParams, Link } from "react-router-dom";
-import { useState, useEffect, useNavigate, useContext } from "react";
+import { useState, useEffect, useContext } from "react";
 import "./tournamentPage.scss";
 import TabSwitch from "../../components/TabSwitch/TabSwitch.jsx";
 import TitleH2 from "../../components/TitleH2/TitleH2.jsx";
@@ -134,10 +134,8 @@ export default function TournamentPage() {
             const round = acc.find((r) => r.letter === m.round_number);
 
             const [participant1Data, participant2Data] = await Promise.all([m.match.participant1_id && m.match.participant1_id !== "undefined" ? getParticipantUser(m.match.participant1_id) : m.match.team1_id && m.match.team1_id !== "undefined" ? getParticipantTeam(m.match.team1_id) : defaultParticipant, m.match.participant2_id && m.match.participant2_id !== "undefined" ? getParticipantUser(m.match.participant2_id) : m.match.team2_id && m.match.team2_id !== "undefined" ? getParticipantTeam(m.match.team2_id) : defaultParticipant,]);
-            console.log(participant1Data)
             if (participant1Data.user) participant1Data.user.avatar = `${API_URL}/${participant1Data.user.avatar}`
             if (participant2Data.user) participant2Data.user.avatar = `${API_URL}/${participant2Data.user.avatar}`
-            console.log(participant1Data)
             const match = {
               id: m.match.id,
               tournament_id: tournament.id,
@@ -237,6 +235,7 @@ export default function TournamentPage() {
               : `${API_URL}/static/avatars/default.png`,
           },
           contact: tournamentData.contact || "@Organizer",
+          highlight_url: tournamentData.highlight_url || "",
           has_groupstage: !!tournamentData.group_stage,
           team: tournamentData.type === "team",
           participants: tournamentData.participants.map((p) => ({
@@ -250,7 +249,6 @@ export default function TournamentPage() {
             avatar: t.avatar ? `${API_URL}/${t.avatar}` : `${API_URL}/static/avatars/default.png`,
           })),
         });
-        console.log(tournamentData)
 
         // Проверка статуса заявки
         setIsApplied(
@@ -303,7 +301,6 @@ export default function TournamentPage() {
                         ? getParticipantTeam(m.team2_id)
                         : defaultParticipant,
                   ]);
-                  // console.log(participant1Data)
 
                   if (participant1Data.user) participant1Data.user.avatar = `${API_URL}/${participant1Data.user.avatar}`;
                   if (participant2Data.user) participant2Data.user.avatar = `${API_URL}/${participant2Data.user.avatar}`;
@@ -387,7 +384,6 @@ export default function TournamentPage() {
                 winner_id: map.winner_id,
               })),
             };
-            // console.log(match);
 
             if (round) {
               round.matches.push(match);
@@ -397,7 +393,6 @@ export default function TournamentPage() {
 
             return acc;
           }, Promise.resolve([]));
-        // console.log(playoffStageResponse)
         let final = {
           id: "final",
           // winner_id: null,
@@ -426,7 +421,6 @@ export default function TournamentPage() {
                 ? getParticipantTeam(finalMatch.match.team2_id)
                 : defaultParticipant,
           ]);
-          // console.log(finalMatch)
           final = {
             id: finalMatch.match.id,
             // winner_id: m.winner_id,
@@ -447,7 +441,6 @@ export default function TournamentPage() {
             })),
           };
         }
-        // console.log(final)
 
         setPlayoffStage({
           rounds,
@@ -469,7 +462,6 @@ export default function TournamentPage() {
         });
         // Матчи
         const matchesResponse = await getAllTournamentMatches(id);
-        // console.log(matchesResponse)
         setMatches(
           matchesResponse.data.map((m) => ({
             id: m.id,
@@ -495,7 +487,6 @@ export default function TournamentPage() {
 
         // Команды пользователя
         const teamsResponse = await getUserTeams();
-        // console.log(teamsResponse)
         setTeams(
           teamsResponse.data[0].member_teams.map((t) => ({
             id: t.id,
@@ -705,7 +696,7 @@ export default function TournamentPage() {
               <div className="tournament-page__overview-card">
                 <h4 className="tournament-page__overview-card-title">Организатор</h4>
                 <Link
-                  to={`/profile/${tournament.manager.id}`}
+                  to={currentUserId === tournament.manager.id ? `/profile` : `/profile/${tournament.manager.id}`}
                   className="tournament-page__overview-organizer"
                 >
                   <img
@@ -736,6 +727,13 @@ export default function TournamentPage() {
                   )}
                 </p>
               </div>
+            </div>
+            <div className="tournament-page__overview-video">
+              <iframe
+                src={tournament.highlight_url}
+                allow="clipboard-write"
+                allowFullScreen
+              ></iframe>
             </div>
           </div>
         )}
@@ -799,7 +797,7 @@ export default function TournamentPage() {
               </div>
             )}
             {activeStage === "final" && playoffStage && (
-              <MatchCard key={playoffStage.final.id} match={playoffStage.final} onFinish={handleMatchFinish} />
+              <MatchCard key={playoffStage.final.id} match={playoffStage.final} onFinish={handleMatchFinish} final_match={true} />
             )}
           </>
         )}
@@ -857,7 +855,8 @@ export default function TournamentPage() {
               <MatchCard
                 key={playoffStage.final.id}
                 match={playoffStage.final}
-                onFinish={handleMatchFinish} // Передаём handleMatchFinish
+                onFinish={handleMatchFinish}
+                final_match={true} // Передаём handleMatchFinish
               />
             )}
           </>

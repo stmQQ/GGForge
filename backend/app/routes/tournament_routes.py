@@ -1,4 +1,5 @@
 import json
+from urllib.parse import urlparse
 
 from pytz import UTC
 from app.models import Tournament, Team, User, db
@@ -31,6 +32,22 @@ tournament_bp = Blueprint('tournament', __name__,
                           url_prefix='/api/tournaments')
 
 API_URL = 'http://localhost:5000'
+ALLOWED_DOMAINS = {
+    'youtube.com',
+    'youtu.be',
+    'twitch.tv',
+    'vimeo.com',
+    'rutube.ru'
+}
+
+
+def is_valid_url(url: str) -> bool:
+    """Проверяет, является ли строка валидным URL."""
+    try:
+        result = urlparse(url)
+        return all([result.scheme in ('http', 'https'), result.netloc, result.netloc in ALLOWED_DOMAINS])
+    except ValueError:
+        return False
 
 
 def is_tournament_creator_or_admin(tournament_id: UUID):
@@ -171,6 +188,32 @@ def create_new_tournament():
     }), 201
 
 
+@tournament_bp.route('/<uuid:tournament_id>/highlight', methods=['PATCH'])
+def add_highlight(tournament_id: UUID):
+    """Добавляет видео-выделение к завершённому турниру."""
+    try:
+        tournament = get_tournament(tournament_id)
+        data = request.get_json()
+        url = data.get('highlight_url')
+
+        if not url:
+            return jsonify({'msg': 'URL не предоставлен.'}), 400
+
+        if not is_valid_url(url):
+            return jsonify({'msg': 'Недействительная или запрещённая ссылка.'}), 400
+
+        tournament.highlight_url = url
+        db.session.add(tournament)
+        db.session.commit()
+        return jsonify({'msg': 'Ссылка успешно добавлена.'}), 200
+
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({'msg': 'Ошибка базы данных. Попробуйте позже.'}), 500
+    except ValueError as e:
+        return jsonify({'msg': str(e)}), 400
+
+
 @tournament_bp.route('/game/<uuid:game_id>', methods=['GET'])
 def get_tournaments_by_game_route(game_id: UUID):
     """Retrieve all tournaments for a specific game."""
@@ -271,7 +314,7 @@ def get_tournament_route(tournament_id: UUID):
         tournament_schema = TournamentSchema(
             only=(
                 'id', 'title', 'game.title', 'creator', 'start_time',
-                'max_players', 'type', 'prize_fund', 'banner_url', 'status', 'description', 'contact', 'participants', 'teams', 'group_stage.id', 'playoff_stage.id'
+                'max_players', 'type', 'prize_fund', 'banner_url', 'status', 'description', 'contact', 'highlight_url', 'participants', 'teams', 'group_stage.id', 'playoff_stage.id'
             )
         )
         return tournament_schema.dump(tournament), 200
@@ -713,7 +756,6 @@ def complete_map_route(tournament_id, match_id, map_id):
         if updated_match.status == "completed":
             response["msg"] = "Map and match completed"
 
-        print(response)
         return jsonify(response), 200
 
     except ValueError as e:
